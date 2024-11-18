@@ -136,7 +136,7 @@ int main(int ac, char *av[])
 
     ReduceDynamics<solid_dynamics::AcousticTimeStep> vessel_wall_computing_time_step_size(vessel_wall);
 
-    // DampingWithRandomChoice<InteractionSplit<DampingPairwiseInner<Vecd, FixedDampingRate>>> wall_damping(0.5, ConstructorArgs(vessel_wall_inner, "Velocity", physical_viscosity));
+    DampingWithRandomChoice<InteractionSplit<DampingPairwiseInner<Vecd, FixedDampingRate>>> wall_damping(0.5, ConstructorArgs(vessel_wall_inner, "Velocity", physical_viscosity));
 
     // Constrain
     // SimpleDynamics<solid_dynamics::ConstrainSolidBodyMassCenter> constrain_mass_center(vessel_wall);
@@ -206,9 +206,11 @@ int main(int ac, char *av[])
     //	and regression tests of the simulation.
     //----------------------------------------------------------------------
     BodyStatesRecordingToVtp write_body_states(sph_system);
+    SimpleDynamics<VonMisesStress> vessel_stress(vessel_wall);
     write_body_states.addToWrite<Real>(water_block, "Pressure"); // output for debug
     write_body_states.addToWrite<int>(water_block, "Indicator"); // output for debug
     write_body_states.addToWrite<Real>(water_block, "Density");
+    write_body_states.addToWrite<Real>(vessel_wall, "VonMisesStress");
     RegressionTestDynamicTimeWarping<ReducedQuantityRecording<TotalKineticEnergy>> write_water_kinetic_energy(water_block);
     //----------------------------------------------------------------------
     //	Prepare the simulation with cell linked list, configuration
@@ -276,7 +278,7 @@ int main(int ac, char *av[])
 
                 //kernel_summation.exec();
                 inflow_condition.exec();
-
+                
                 density_relaxation.exec(dt);
 
                 /** Solid dynamics. */
@@ -287,6 +289,8 @@ int main(int ac, char *av[])
                 {
                     Real dt_s = SMIN(vessel_wall_computing_time_step_size.exec(), dt - dt_s_sum);
                     vessel_wall_stress_relaxation_first_half.exec(dt_s);
+                    constrain_holder.exec();
+                    wall_damping.exec();
                     constrain_holder.exec();
                     vessel_wall_stress_relaxation_second_half.exec(dt_s);
                     dt_s_sum += dt_s;
@@ -328,6 +332,7 @@ int main(int ac, char *av[])
             interval_updating_configuration += TickCount::now() - time_instance;
         }
         TickCount t2 = TickCount::now();
+        vessel_stress.exec(dt);
         write_body_states.writeToFile();
         TickCount t3 = TickCount::now();
         interval += t3 - t2;

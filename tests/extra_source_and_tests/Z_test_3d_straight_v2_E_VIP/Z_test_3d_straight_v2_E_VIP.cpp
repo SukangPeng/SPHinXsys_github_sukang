@@ -226,7 +226,7 @@ int main(int ac, char *av[])
     //----------------------------------------------------------------------
     Real &physical_time = *sph_system.getSystemVariableDataByName<Real>("PhysicalTime");
     size_t number_of_iterations = 0.0;
-    int screen_output_interval = 10;
+    int screen_output_interval =1000;
     Real end_time = 50.0;
     Real Output_Time = end_time / 200.0; /**< Time stamps for output of body states. */
     Real dt = 0.0;                       /**< Default acoustic time step sizes. */

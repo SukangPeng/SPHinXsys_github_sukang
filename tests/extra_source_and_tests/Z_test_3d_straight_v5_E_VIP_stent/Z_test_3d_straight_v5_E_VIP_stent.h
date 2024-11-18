@@ -1,5 +1,5 @@
 ﻿/**
- * @file Z_test_3d_straight_v4_E_VI
+ * @file Z_test_3d_straight_v5_E_VIP_stent
  * @brief
  * @details
  * @author Sukang
@@ -26,7 +26,7 @@ std::string vessel_fluid = "./input/vessel_fluid.stl";
 Vec3d translation_water_block(0.0, 0.0, 0.0);                             /**< 水块的初始平移，单位：m (米) */
 Vec3d translation_wall_boundary(0.0, 0.0, 0.0);                           /**< 血管壁的初始平移，单位：m (米) */
 Real length_scale = 1.0;                                                  /**< 长度比例因子，无量纲 (无单位) */
-Real resolution_ref = 0.0003;                                             /**< 初始参考粒子间距，单位：m (米) */
+Real resolution_ref = 0.00035;                                            /**< 初始参考粒子间距，单位：m (米) */
 Real BW = resolution_ref * 4.0;                                           /**< 发射器的参考大小，单位：m (米) */
 Real diameter = 0.004;                                                    /**< 血管外径，单位：m (米) */
 Vec3d domain_lower_bound(-0.001, -0.003, -0.003);                         /**< 系统域的下边界，单位：m (米) */
@@ -39,7 +39,7 @@ Real full_length = 0.025;                                                 /**< �
 Real rho0_f = 1060.0; /**< 流体的参考密度，单位：kg/m³ (千克每立方米) */
 Real Outlet_pressure = 0.0;
 Real Re = 100.0; /**< 雷诺数，无量纲 (无单位) */
-Real U_f = 0.08;  /**< Characteristic velocity. */
+Real U_f = 0.1;  /**< Characteristic velocity. */
 Real mu_f = rho0_f * U_f * diameter / Re;
 Real c_f = 10.0 * U_f;
 // Real mu_f = 3.6e-3;   /**< 动态粘度，单位：Pa·s (帕·秒) */
@@ -49,36 +49,10 @@ Real c_f = 10.0 * U_f;
 //----------------------------------------------------------------------
 //	Global parameters on the solid properties (血管壁参数)
 //----------------------------------------------------------------------
-Real rho0_s = 1265;               /**< 血管壁的密度，单位：kg/m³ (千克每立方米) */
-Real poisson = 0.45;              /**< 血管壁的泊松比，无量纲 (无单位) */
-Real Youngs_modulus = 50000.0;     /**< 血管壁的杨氏模量，单位：Pa (帕) */
-Real physical_viscosity = 1000.0; /**< 血管壁的物理粘度，单位：Pa·s (帕·秒) */
-//----------------------------------------------------------------------
-//	Pressure boundary definition.
-//----------------------------------------------------------------------
-struct InflowPressure
-{
-    template <class BoundaryConditionType>
-    InflowPressure(BoundaryConditionType &boundary_condition) {}
-
-    Real operator()(Real p, Real curent_time)
-    {
-        return p;
-    }
-};
-
-struct OutflowPressure
-{
-    template <class BoundaryConditionType>
-    OutflowPressure(BoundaryConditionType &boundary_condition) {}
-
-    Real operator()(Real p, Real curent_time)
-    {
-        /*constant pressure*/
-        Real pressure = Outlet_pressure;
-        return pressure;
-    }
-};
+Real rho0_s = 1265;              /**< 血管壁的密度，单位：kg/m³ (千克每立方米) */
+Real poisson = 0.45;             /**< 血管壁的泊松比，无量纲 (无单位) */
+Real Youngs_modulus = 50000.0;   /**< 血管壁的杨氏模量，单位：Pa (帕) */
+Real physical_viscosity = 500.0; /**< 血管壁的物理粘度，单位：Pa·s (帕·秒) */
 //----------------------------------------------------------------------
 // Inflow velocity
 //----------------------------------------------------------------------

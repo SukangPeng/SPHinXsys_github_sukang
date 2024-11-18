@@ -1,5 +1,5 @@
 /**
- * @file     Z_test_3d_v8_vessel_solid_test1.cpp
+ * @file     Z_test_3d_straight_v5_E_VIP_stent.cpp
  * @brief 	 test 正常的血管流动
  * @details  test
  *
@@ -18,10 +18,10 @@ int main(int ac, char *av[])
     //	Build up the environment of a SPHSystem with global controls.
     //----------------------------------------------------------------------
     SPHSystem sph_system(system_domain_bounds, resolution_ref);
-    sph_system.setRunParticleRelaxation(true); // Tag for run particle relaxation for body-fitted distribution
-    sph_system.setReloadParticles(false);      // Tag for computation with save particles distribution
-    //sph_system.setRunParticleRelaxation(false); // Tag for run particle relaxation for body-fitted distribution
-    //sph_system.setReloadParticles(true);        // Tag for computation with save particles distribution
+    //sph_system.setRunParticleRelaxation(true); // Tag for run particle relaxation for body-fitted distribution
+    //sph_system.setReloadParticles(false);      // Tag for computation with save particles distribution
+    sph_system.setRunParticleRelaxation(false); // Tag for run particle relaxation for body-fitted distribution
+    sph_system.setReloadParticles(true);        // Tag for computation with save particles distribution
 #ifdef BOOST_AVAILABLE
     sph_system.handleCommandlineOptions(ac, av)->setIOEnvironment();
 #endif
@@ -42,7 +42,7 @@ int main(int ac, char *av[])
     SolidBody vessel_wall(sph_system, makeShared<VesselWall>("VesselWall"));
     vessel_wall.defineAdaptationRatios(1.15, 1.5);
     vessel_wall.defineBodyLevelSetShape()->correctLevelSetSign()->writeLevelSet(sph_system);
-    //vessel_wall.defineMaterial<Solid>();
+    // vessel_wall.defineMaterial<Solid>();
     vessel_wall.defineMaterial<NeoHookeanSolid>(rho0_s, Youngs_modulus, poisson);
     (!sph_system.RunParticleRelaxation() && sph_system.ReloadParticles())
         ? vessel_wall.generateParticles<BaseParticles, Reload>(vessel_wall.getName())
@@ -135,7 +135,8 @@ int main(int ac, char *av[])
     Dynamics1Level<solid_dynamics::Integration2ndHalf> vessel_wall_stress_relaxation_second_half(vessel_wall_inner);
 
     ReduceDynamics<solid_dynamics::AcousticTimeStep> vessel_wall_computing_time_step_size(vessel_wall);
-    // DampingWithRandomChoice<InteractionSplit<DampingPairwiseInner<Vecd, FixedDampingRate>>> wall_damping(0.5, ConstructorArgs(vessel_wall_inner, "Velocity", physical_viscosity));
+
+    DampingWithRandomChoice<InteractionSplit<DampingPairwiseInner<Vecd, FixedDampingRate>>> wall_damping(0.5, ConstructorArgs(vessel_wall_inner, "Velocity", physical_viscosity));
 
     // Constrain
     // SimpleDynamics<solid_dynamics::ConstrainSolidBodyMassCenter> constrain_mass_center(vessel_wall);
@@ -149,28 +150,33 @@ int main(int ac, char *av[])
 
     InteractionWithUpdate<fluid_dynamics::ViscousForceWithWall> viscous_force(water_block_inner, water_wall_contact);
     InteractionWithUpdate<fluid_dynamics::TransportVelocityCorrectionComplex<BulkParticles>> transport_velocity_correction(water_block_inner, water_wall_contact);
-    InteractionWithUpdate<fluid_dynamics::DensitySummationComplex> update_density_by_summation(water_block_inner, water_wall_contact);
+    InteractionWithUpdate<fluid_dynamics::DensitySummationFreeStreamComplex> update_density_by_summation(water_block_inner, water_wall_contact);
 
     ReduceDynamics<fluid_dynamics::AdvectionViscousTimeStep> get_fluid_advection_time_step_size(water_block, U_f);
     ReduceDynamics<fluid_dynamics::AcousticTimeStep> get_fluid_time_step_size(water_block);
     //----------------------------------------------------------------------
     // Buffer
     //----------------------------------------------------------------------
-    /*left buffer*/
-    Vecd left_buffer_halfsize = Vecd(0.5 * BW, diameter / 2, diameter / 2);
-    Vecd left_buffer_translation = Vecd(0.5 * BW - 0.5 * resolution_ref, 0.0, 0.0);
-    AlignedBoxShape left_shape(xAxis, Transform(Vecd(left_buffer_translation)), left_buffer_halfsize);
-    BodyAlignedBoxByCell left_emitter(water_block, left_shape);
-    fluid_dynamics::BidirectionalBuffer<InflowPressure> left_bidirection_buffer(left_emitter, in_outlet_particle_buffer);
+    /*emitter*/
+    Vecd left_emitter_halfsize = Vecd(0.5 * BW, diameter / 2, diameter / 2);
+    Vecd left_emitter_translation = Vecd(0.5 * BW - 0.5 * resolution_ref, 0.0, 0.0);
+    AlignedBoxShape emitter_shape(xAxis, Transform(Vecd(left_emitter_translation)), left_emitter_halfsize);
+    BodyAlignedBoxByParticle left_emitter(water_block, emitter_shape);
+    SimpleDynamics<fluid_dynamics::EmitterInflowInjection> emitter_inflow_injection(left_emitter, in_outlet_particle_buffer);
 
-    /*right buffer*/
-    Vecd right_buffer_halfsize = Vecd(0.5 * BW, diameter / 2, diameter / 2);
-    Vecd right_buffer_translation = Vecd(0.025 - 0.5 * BW, 0.0, 0.0);
-    Real angle = M_PI;        // 180 度，弧度表示
-    Vecd axis(0.0, 1.0, 0.0); // y 轴
-    AlignedBoxShape right_shape(xAxis, Transform(Rotation3d(angle, axis), Vecd(right_buffer_translation)), right_buffer_halfsize);
-    BodyAlignedBoxByCell right_emitter(water_block, right_shape);
-    fluid_dynamics::BidirectionalBuffer<OutflowPressure> right_bidirection_buffer(right_emitter, in_outlet_particle_buffer);
+    /*buffer*/
+    Vecd left_buffer_halfsize = left_emitter_halfsize;
+    Vecd left_buffer_translation = left_emitter_translation;
+    AlignedBoxShape buffer_shape(xAxis, Transform(Vecd(left_buffer_translation)), left_buffer_halfsize);
+    BodyAlignedBoxByCell left_buffer(water_block, buffer_shape);
+    SimpleDynamics<fluid_dynamics::InflowVelocityCondition<InflowVelocity>> inflow_condition(left_buffer);
+
+    /*disposer*/
+    Vecd right_disposer_halfsize = Vecd(0.5 * BW, diameter / 2, diameter / 2);
+    Vecd right_disposer_translation = Vecd(0.025 - 0.5 * BW, 0.0, 0.0);
+    AlignedBoxShape disposer_shape(xAxis, Transform(Vecd(right_disposer_translation)), right_disposer_halfsize);
+    BodyAlignedBoxByCell right_disposer(water_block, disposer_shape);
+    SimpleDynamics<fluid_dynamics::DisposerOutflowDeletion> disposer_outflow_deletion(right_disposer);
 
     /*shape_test*/
     SolidBody Left_(sph_system, makeShared<AlignedBoxShape>(xAxis, Transform(Vecd(left_buffer_translation)), left_buffer_halfsize), "Left");
@@ -179,16 +185,11 @@ int main(int ac, char *av[])
     BodyStatesRecordingToVtp write_left_to_vtp(Left_);
     write_left_to_vtp.writeToFile(0);
 
-    SolidBody Right_(sph_system, makeShared<AlignedBoxShape>(xAxis, Transform(Vecd(right_buffer_translation)), right_buffer_halfsize), "Right");
+    SolidBody Right_(sph_system, makeShared<AlignedBoxShape>(xAxis, Transform(Vecd(right_disposer_translation)), right_disposer_halfsize), "Right");
     Right_.defineMaterial<Solid>();
     Right_.generateParticles<BaseParticles, Lattice>();
     BodyStatesRecordingToVtp write_right_to_vtp(Right_);
     write_right_to_vtp.writeToFile(0);
-
-    InteractionWithUpdate<fluid_dynamics::DensitySummationPressureComplex> update_fluid_density(water_block_inner, water_wall_contact);
-    SimpleDynamics<fluid_dynamics::PressureCondition<InflowPressure>> left_inflow_pressure_condition(left_emitter);
-    SimpleDynamics<fluid_dynamics::PressureCondition<OutflowPressure>> right_inflow_pressure_condition(right_emitter);
-    SimpleDynamics<fluid_dynamics::InflowVelocityCondition<InflowVelocity>> inflow_velocity_condition(left_emitter);
     //----------------------------------------------------------------------
     //	Algorithms of FSI.
     //----------------------------------------------------------------------
@@ -205,10 +206,11 @@ int main(int ac, char *av[])
     //	and regression tests of the simulation.
     //----------------------------------------------------------------------
     BodyStatesRecordingToVtp write_body_states(sph_system);
+    SimpleDynamics<VonMisesStress> vessel_stress(vessel_wall);
     write_body_states.addToWrite<Real>(water_block, "Pressure"); // output for debug
     write_body_states.addToWrite<int>(water_block, "Indicator"); // output for debug
     write_body_states.addToWrite<Real>(water_block, "Density");
-    write_body_states.addToWrite<int>(water_block, "BufferParticleIndicator");
+    write_body_states.addToWrite<Real>(vessel_wall, "VonMisesStress");
     RegressionTestDynamicTimeWarping<ReducedQuantityRecording<TotalKineticEnergy>> write_water_kinetic_energy(water_block);
     //----------------------------------------------------------------------
     //	Prepare the simulation with cell linked list, configuration
@@ -216,9 +218,6 @@ int main(int ac, char *av[])
     //----------------------------------------------------------------------
     sph_system.initializeSystemCellLinkedLists();
     sph_system.initializeSystemConfigurations();
-    inlet_outlet_surface_particle_indicator.exec();
-    left_bidirection_buffer.tag_buffer_particles.exec();
-    right_bidirection_buffer.tag_buffer_particles.exec();
     vessel_wall_normal_direction.exec();
     vessel_wall_corrected_configuration.exec();
     //----------------------------------------------------------------------
@@ -226,7 +225,7 @@ int main(int ac, char *av[])
     //----------------------------------------------------------------------
     Real &physical_time = *sph_system.getSystemVariableDataByName<Real>("PhysicalTime");
     size_t number_of_iterations = 0.0;
-    int screen_output_interval = 10;
+    int screen_output_interval = 1000;
     Real end_time = 50.0;
     Real Output_Time = end_time / 200.0; /**< Time stamps for output of body states. */
     Real dt = 0.0;                       /**< Default acoustic time step sizes. */
@@ -254,7 +253,8 @@ int main(int ac, char *av[])
         {
             time_instance = TickCount::now();
             Real Dt = get_fluid_advection_time_step_size.exec();
-            update_fluid_density.exec();
+            inlet_outlet_surface_particle_indicator.exec();
+            update_density_by_summation.exec();
             viscous_force.exec();
             transport_velocity_correction.exec();
             interval_computing_time_step += TickCount::now() - time_instance;
@@ -276,11 +276,9 @@ int main(int ac, char *av[])
                 /** FSI for pressure force. */
                 pressure_force_from_fluid.exec();
 
-                kernel_summation.exec();
-                left_inflow_pressure_condition.exec(dt);
-                right_inflow_pressure_condition.exec(dt);
-                inflow_velocity_condition.exec();
-
+                // kernel_summation.exec();
+                inflow_condition.exec();
+                
                 density_relaxation.exec(dt);
 
                 /** Solid dynamics. */
@@ -292,10 +290,12 @@ int main(int ac, char *av[])
                     Real dt_s = SMIN(vessel_wall_computing_time_step_size.exec(), dt - dt_s_sum);
                     vessel_wall_stress_relaxation_first_half.exec(dt_s);
                     constrain_holder.exec();
+                    wall_damping.exec();
+                    constrain_holder.exec();
                     vessel_wall_stress_relaxation_second_half.exec(dt_s);
                     dt_s_sum += dt_s;
                     inner_ite_dt_s++;
-                    //write_body_states.writeToFile();
+                    // write_body_states.writeToFile();
                 }
                 average_velocity_and_acceleration.update_averages_.exec(dt);
 
@@ -315,11 +315,9 @@ int main(int ac, char *av[])
 
             time_instance = TickCount::now();
 
-            left_bidirection_buffer.injection.exec();
-            right_bidirection_buffer.injection.exec();
-
-            left_bidirection_buffer.deletion.exec();
-            right_bidirection_buffer.deletion.exec();
+            /** inflow injection*/
+            emitter_inflow_injection.exec();
+            disposer_outflow_deletion.exec();
 
             if (number_of_iterations % 100 == 0 && number_of_iterations != 1)
             {
@@ -328,12 +326,13 @@ int main(int ac, char *av[])
             water_block.updateCellLinkedList();
             water_block_complex.updateConfiguration();
 
+            vessel_wall.updateCellLinkedList();
+            wall_water_contact.updateConfiguration();
+
             interval_updating_configuration += TickCount::now() - time_instance;
-            inlet_outlet_surface_particle_indicator.exec();
-            left_bidirection_buffer.tag_buffer_particles.exec();
-            right_bidirection_buffer.tag_buffer_particles.exec();
         }
         TickCount t2 = TickCount::now();
+        vessel_stress.exec(dt);
         write_body_states.writeToFile();
         TickCount t3 = TickCount::now();
         interval += t3 - t2;

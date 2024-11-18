@@ -18,10 +18,10 @@ int main(int ac, char *av[])
     //	Build up the environment of a SPHSystem with global controls.
     //----------------------------------------------------------------------
     SPHSystem sph_system(system_domain_bounds, resolution_ref);
-    //sph_system.setRunParticleRelaxation(true); // Tag for run particle relaxation for body-fitted distribution
-    //sph_system.setReloadParticles(false);      // Tag for computation with save particles distribution
-    sph_system.setRunParticleRelaxation(false); // Tag for run particle relaxation for body-fitted distribution
-    sph_system.setReloadParticles(true);        // Tag for computation with save particles distribution
+    sph_system.setRunParticleRelaxation(true); // Tag for run particle relaxation for body-fitted distribution
+    sph_system.setReloadParticles(false);      // Tag for computation with save particles distribution
+    //sph_system.setRunParticleRelaxation(false); // Tag for run particle relaxation for body-fitted distribution
+    //sph_system.setReloadParticles(true);        // Tag for computation with save particles distribution
 #ifdef BOOST_AVAILABLE
     sph_system.handleCommandlineOptions(ac, av)->setIOEnvironment();
 #endif
@@ -201,7 +201,7 @@ int main(int ac, char *av[])
     //----------------------------------------------------------------------
     Real &physical_time = *sph_system.getSystemVariableDataByName<Real>("PhysicalTime");
     size_t number_of_iterations = 0.0;
-    int screen_output_interval = 1000;
+    int screen_output_interval = 2000;
     Real end_time = 50.0;
     Real Output_Time = end_time / 200.0; /**< Time stamps for output of body states. */
     Real dt = 0.0;                           /**< Default acoustic time step sizes. */
