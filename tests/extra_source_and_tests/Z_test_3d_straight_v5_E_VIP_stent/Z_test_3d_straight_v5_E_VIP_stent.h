@@ -28,7 +28,8 @@ Vec3d translation_water_block(0.0, 0.0, 0.0);                             /**< �
 Vec3d translation_wall_boundary(0.0, 0.0, 0.0);                           /**< 血管壁的初始平移，单位：m (米) */
 Vec3d translation_stent(0.0, 0.0, 0.0);                                   /**< 支架的初始平移，单位：m (米) */
 Real length_scale = 1.0;                                                  /**< 长度比例因子，无量纲 (无单位) */
-Real resolution_ref = 0.00035;                                            /**< 初始参考粒子间距，单位：m (米) */
+Real resolution_ref = 0.0003;                                            /**< 初始参考粒子间距，单位：m (米) */
+//Real resolution_ref = 0.001;                                             /**< 初始参考粒子间距，单位：m (米) */
 Real BW = resolution_ref * 4.0;                                           /**< 发射器的参考大小，单位：m (米) */
 Real diameter = 0.004;                                                    /**< 血管外径，单位：m (米) */
 Vec3d domain_lower_bound(-0.001, -0.003, -0.003);                         /**< 系统域的下边界，单位：m (米) */
@@ -225,6 +226,221 @@ class RadialExpansionForce : public GravityForce<GravityType>
         GravityForce<GravityType>::update(index_i, dt);
     }
 };
+
+//----------------------------------------------------------------------
+//	RotationCalculator
+//----------------------------------------------------------------------
+struct RotationCalculator
+{
+    Vec3d rotation_axis;   // 旋转轴
+    Real rotation_angle;   // 旋转角度（弧度）
+    Mat3d rotation_matrix; // 旋转矩阵
+
+    // 构造函数：根据两点和初始方向向量计算旋转矩阵、轴和角度
+    RotationCalculator(const Vec3d &pointA, const Vec3d &pointB, const Vec3d &initial_direction)
+    {
+        Vec3d target_direction = (pointB - pointA).normalized();             // 目标方向向量
+        Vec3d normalized_initial_direction = initial_direction.normalized(); // 规范化初始方向向量
+
+        // 计算旋转轴
+        rotation_axis = normalized_initial_direction.cross(target_direction).normalized();
+
+        // 计算旋转角度
+        rotation_angle = std::acos(normalized_initial_direction.dot(target_direction));
+
+        // 构造旋转矩阵
+        rotation_matrix = Eigen::AngleAxis<Real>(rotation_angle, rotation_axis).toRotationMatrix();
+    }
+
+    // 打印旋转矩阵
+    void printRotationMatrix() const
+    {
+        std::cout << "Rotation Matrix:\n"
+                  << rotation_matrix << std::endl;
+    }
+
+    // 打印旋转轴
+    void printRotationAxis() const
+    {
+        std::cout << "Rotation Axis: (" << rotation_axis.x() << ", " << rotation_axis.y() << ", " << rotation_axis.z() << ")" << std::endl;
+    }
+
+    // 打印旋转角度
+    void printRotationAngle() const
+    {
+        std::cout << "Rotation Angle (in radians): " << rotation_angle << std::endl;
+    }
+
+    // 获取旋转矩阵
+    Mat3d getRotationMatrix() const
+    {
+        return rotation_matrix;
+    }
+
+    // 获取旋转轴
+    Vec3d getRotationAxis() const
+    {
+        return rotation_axis;
+    }
+
+    // 获取旋转角度
+    Real getRotationAngle() const
+    {
+        return rotation_angle;
+    }
+};
+
+
+//----------------------------------------------------------------------
+// BoundingBox Calculation Functions
+//----------------------------------------------------------------------
+BoundingBox getRealTimeBoundingBox(BaseParticles &particles)
+{
+    // Initialize bounding box with extreme values
+    Vecd lower_bound = Vecd::Constant(std::numeric_limits<Real>::max());
+    Vecd upper_bound = Vecd::Constant(-std::numeric_limits<Real>::max());
+
+    // Access particle position data directly
+    const Vecd *positions = particles.ParticlePositions();
+
+    // Iterate over all particle positions to update bounding box
+    for (size_t i = 0; i < particles.TotalRealParticles(); ++i)
+    {
+        const Vecd &particle_pos = positions[i];
+        lower_bound = lower_bound.cwiseMin(particle_pos);
+        upper_bound = upper_bound.cwiseMax(particle_pos);
+    }
+
+    return BoundingBox(lower_bound, upper_bound);
+}
+
+BoundingBox getAlignedBoundingBox(BaseParticles &particles, const Mat3d &rotation, const Vecd &translation)
+{
+    // Initialize bounding box in local coordinate system
+    Vecd local_lower_bound = Vecd::Constant(std::numeric_limits<Real>::max());
+    Vecd local_upper_bound = Vecd::Constant(-std::numeric_limits<Real>::max());
+
+    // Access particle position data directly
+    const Vecd *positions = particles.ParticlePositions();
+
+    // Calculate inverse rotation matrix and translation vector
+    Mat3d inv_rotation = rotation.transpose(); // Inverse rotation
+    Vecd inv_translation = -translation;       // Inverse translation
+
+    // Iterate over all particle positions
+    for (size_t i = 0; i < particles.TotalRealParticles(); ++i)
+    {
+        // Get global coordinate of the particle
+        const Vecd &particle_pos = positions[i];
+
+        // Apply inverse translation and inverse rotation to get local coordinates
+        Vecd local_pos = inv_rotation * (particle_pos + inv_translation);
+
+        // Update bounding box in the local coordinate system
+        local_lower_bound = local_lower_bound.cwiseMin(local_pos);
+        local_upper_bound = local_upper_bound.cwiseMax(local_pos);
+    }
+
+    // Return bounding box aligned with the stent
+    return BoundingBox(local_lower_bound, local_upper_bound);
+}
+
+void printBoundingBoxAndDelta(const BoundingBox &bbox)
+{
+    Vecd lower_bound = bbox.first_;
+    Vecd upper_bound = bbox.second_;
+    Vecd delta = upper_bound - lower_bound;
+
+    std::cout << "Current Bounding Box Lower Bound: ("
+              << lower_bound[0] << ", " << lower_bound[1] << ", " << lower_bound[2] << ")\n";
+    std::cout << "Current Bounding Box Upper Bound: ("
+              << upper_bound[0] << ", " << upper_bound[1] << ", " << upper_bound[2] << ")\n";
+    std::cout << lower_bound[0] << " to " << upper_bound[0] << " (delta: " << delta[0] << ")\n";
+    std::cout << lower_bound[1] << " to " << upper_bound[1] << " (delta: " << delta[1] << ")\n";
+    std::cout << lower_bound[2] << " to " << upper_bound[2] << " (delta: " << delta[2] << ")\n";
+}
+
+//----------------------------------------------------------------------
+//	ReloadParticleRecordingToXml
+//----------------------------------------------------------------------
+/**
+ * @class ReloadParticleRecordingToXml
+ * @brief This class records the latest particle state in XML format, inheriting directly from BaseIO.
+ * It writes the particle state to an XML file which can be used for reloading the particle state in future simulations.
+ */
+class ReloadParticleRecordingToXml : public BaseIO
+{
+  public:
+    // 构造函数，传入需要记录状态的 SPHBody
+    ReloadParticleRecordingToXml(SPHBody &sph_body)
+        : BaseIO(sph_body.getSPHSystem()), sph_body_(sph_body), base_particles_(sph_body.getBaseParticles())
+    {
+        // 确保输出文件夹正确设置
+        output_folder_ = io_environment_.output_folder_ + "/particle-reload";
+        if (!fs::exists(output_folder_))
+        {
+            fs::create_directories(output_folder_);
+        }
+    }
+
+    // 公共函数，将当前粒子状态写入 XML 文件
+    void writeToFile(size_t iteration_step)
+    {
+        // 将迭代步骤转换为字符串，用于文件名
+        std::string sequence = std::to_string(iteration_step);
+        // 构造保存粒子重载数据的文件路径（XML格式）
+        std::string filefullpath = output_folder_ + "/particle_reload_" + sph_body_.getName() + "_" + sequence + ".xml";
+
+        // 如果文件已存在，删除旧文件
+        if (fs::exists(filefullpath))
+        {
+            fs::remove(filefullpath);
+        }
+
+        // 打开输出文件流
+        std::ofstream out_file(filefullpath.c_str(), std::ios::trunc);
+
+        // 开始写入 XML 结构
+        out_file << "<?xml version=\"1.0\"?>\n";
+        out_file << "<particles>\n";
+
+        // 遍历所有真实粒子并写入数据
+        size_t total_real_particles = base_particles_.TotalRealParticles();
+        for (size_t i = 0; i != total_real_particles; ++i)
+        {
+            Vecd position = base_particles_.ParticlePositions()[i];
+            Real volume = base_particles_.VolumetricMeasures()[i];
+
+            // 以单行格式写入每个粒子的属性
+            out_file << "  <particle VolumetricMeasure=\"" << volume << "\" Position=\""
+                     << position[0] << ", " << position[1];
+
+            // 如果是三维项目，则添加第三个坐标
+            if (position.size() == 3)
+            {
+                out_file << ", " << position[2];
+            }
+
+            out_file << "\"/>\n";
+        }
+
+        // 关闭 XML 结构
+        out_file << "</particles>\n";
+        out_file.close();
+
+        // 调试：确认文件已写入
+        std::cout << "Particle state for " << sph_body_.getName() << " written to " << filefullpath << std::endl;
+    }
+
+  private:
+    SPHBody &sph_body_;             // 我们正在写入粒子状态的 SPHBody
+    BaseParticles &base_particles_; // 该物体的粒子
+    std::string output_folder_;     // 输出文件将被写入的文件夹
+};
+
+
+
+
 
 
 

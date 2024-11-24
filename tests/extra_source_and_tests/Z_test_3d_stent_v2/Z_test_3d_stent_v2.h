@@ -42,7 +42,7 @@ Real full_length = 0.025;
 Real rho0_s_vessel = 1265;              /**< 血管壁的密度，单位：kg/m³ (千克每立方米) */
 Real poisson_vessel = 0.45;             /**< 血管壁的泊松比，无量纲 (无单位) */
 Real Youngs_modulus_vessel = 50000.0;   /**< 血管壁的杨氏模量，单位：Pa (帕) */
-Real physical_viscosity_vessel = 500.0; /**< 血管壁的物理粘度，单位：Pa·s (帕·秒) */
+Real physical_viscosity_vessel = 200.0; /**< 血管壁的物理粘度，单位：Pa·s (帕·秒) */
 //----------------------------------------------------------------------
 //	Global parameters for stent (血管壁参数)
 //----------------------------------------------------------------------
@@ -50,7 +50,7 @@ Real physical_viscosity_vessel = 500.0; /**< 血管壁的物理粘度，单位�
 Real rho0_s_stent = 6450.0;            /**< 支架的密度，单位：kg/m³ (千克每立方米) */
 Real poisson_stent = 0.33;             /**< 支架的泊松比，无量纲 (无单位) */
 Real youngs_modulus_stent = 1e6;       /**< 支架的杨氏模量，单位：Pa (帕) */
-Real physical_viscosity_stent = 500.0; /**< 支架的物理粘度，单位：Pa·s (帕·秒) */
+Real physical_viscosity_stent = 200.0; /**< 支架的物理粘度，单位：Pa·s (帕·秒) */
 //----------------------------------------------------------------------
 //	Define SPH bodies.
 //----------------------------------------------------------------------
@@ -105,7 +105,6 @@ class BoundaryGeometry : public BodyPartByParticle
  *  - StartupRadialForce: 当你需要一个平滑的启动过程，力逐渐增加并且有一个基于正弦的平滑过渡时使用。
  *  - IncreaseToFullRadialForce: 当你需要线性增加径向力到目标值，以平缓地达到完全力时使用。
  */
-
 class RadialForce
 {
   protected:
@@ -239,8 +238,7 @@ class RadialForceApplication : public ForcePrior
     void update(size_t index_i, Real dt = 0.0)
     {
         current_force_[index_i] = mass_[index_i] * radial_force_.InducedAcceleration(pos_[index_i], *physical_time_);
-        force_prior_[index_i] += current_force_[index_i] - previous_force_[index_i];
-        previous_force_[index_i] = current_force_[index_i];
+        ForcePrior::update(index_i, dt);
     }
 };
 
@@ -389,4 +387,6 @@ class ReloadParticleRecordingToXml : public BaseIO
     SPHBody &sph_body_;             // 我们正在写入粒子状态的 SPHBody
     BaseParticles &base_particles_; // 该物体的粒子
     std::string output_folder_;     // 输出文件将被写入的文件夹
-}
+};
+
+        

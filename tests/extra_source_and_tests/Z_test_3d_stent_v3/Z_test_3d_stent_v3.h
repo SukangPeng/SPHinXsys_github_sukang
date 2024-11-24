@@ -18,21 +18,21 @@ constexpr Real PI = 3.14159265358979323846;
 //----------------------------------------------------------------------
 //	Set the file path to the data file
 //----------------------------------------------------------------------
-// std::string stent_path = "./input/ml_stent_test.stl";
-std::string stent_path = "./input/Stent.stl";
-std::string vessel_wall = "./input/vessel_wall.stl";
+std::string stent_path = "./input/stent_test.stl";
+//std::string stent_path = "./input/Stent.stl";
+//std::string vessel_wall_path = "./input/vessel_wall.stl";
 //----------------------------------------------------------------------
 //	Basic geometry parameters
 //----------------------------------------------------------------------
-Vec3d translation_wall_boundary(0.0, 0.0, 0.0); /**< 血管壁的初始平移，单位：m (米) */
-Vec3d translation_stent(0.0125, 0.0, 0.0);      /**< 支架的初始平移，单位：m (米) */
+Vec3d translation_vessel_wall(0.0, 0.0, 0.0); /**< 血管壁的初始平移，单位：m (米) */
+Vec3d translation_stent(0.0, 0.0, 0.0);      /**< 支架的初始平移，单位：m (米) */
 Real length_scale_stent = 1e-3;                 /**< 长度比例因子，无量纲 (无单位) */
 Real length_scale = 1.0;                        /**< 长度比例因子，无量纲 (无单位) */
 Real resolution_ref = 0.3 * length_scale_stent; /**< 初始参考粒子间距，单位：m (米) */
 // resolution_ref = 0.0003;                                            /**< 初始参考粒子间距，单位：m (米) */
 Real diameter = 0.004;                                                    /**< 血管外径，单位：m (米) */
-Vec3d domain_lower_bound(-0.001, -0.003, -0.003);                         /**< 系统域的下边界，单位：m (米) */
-Vec3d domain_upper_bound(0.026, 0.003, 0.003);                            /**< 系统域的上边界，单位：m (米) */
+Vec3d domain_lower_bound(-0.006, -0.002, -0.002);                         /**< 系统域的下边界，单位：m (米) */
+Vec3d domain_upper_bound(0.006, 0.002, 0.002);                            /**< 系统域的上边界，单位：m (米) */
 BoundingBox system_domain_bounds(domain_lower_bound, domain_upper_bound); /**< 系统域的边界框，单位：m (米) */
 Real full_length = 0.025;
 //----------------------------------------------------------------------
@@ -41,8 +41,8 @@ Real full_length = 0.025;
 /*Vessel Material*/
 Real rho0_s_vessel = 1265;              /**< 血管壁的密度，单位：kg/m³ (千克每立方米) */
 Real poisson_vessel = 0.45;             /**< 血管壁的泊松比，无量纲 (无单位) */
-Real Youngs_modulus_vessel = 50000.0;   /**< 血管壁的杨氏模量，单位：Pa (帕) */
-Real physical_viscosity_vessel = 500.0; /**< 血管壁的物理粘度，单位：Pa·s (帕·秒) */
+Real Youngs_modulus_vessel = 1e5;     /**< 血管壁的杨氏模量，单位：Pa (帕) */
+Real physical_viscosity_vessel = 200.0; /**< 血管壁的物理粘度，单位：Pa·s (帕·秒) */
 //----------------------------------------------------------------------
 //	Global parameters for stent (血管壁参数)
 //----------------------------------------------------------------------
@@ -50,18 +50,10 @@ Real physical_viscosity_vessel = 500.0; /**< 血管壁的物理粘度，单位�
 Real rho0_s_stent = 6450.0;            /**< 支架的密度，单位：kg/m³ (千克每立方米) */
 Real poisson_stent = 0.33;             /**< 支架的泊松比，无量纲 (无单位) */
 Real youngs_modulus_stent = 1e6;       /**< 支架的杨氏模量，单位：Pa (帕) */
-Real physical_viscosity_stent = 500.0; /**< 支架的物理粘度，单位：Pa·s (帕·秒) */
+Real physical_viscosity_stent = 100.0; /**< 支架的物理粘度，单位：Pa·s (帕·秒) */
 //----------------------------------------------------------------------
 //	Define SPH bodies.
 //----------------------------------------------------------------------
-class VesselWall : public ComplexShape
-{
-  public:
-    explicit VesselWall(const std::string &shape_name) : ComplexShape(shape_name)
-    {
-        add<TriangleMeshShapeSTL>(vessel_wall, translation_wall_boundary, length_scale);
-    }
-};
 class Stent : public ComplexShape
 {
   public:
@@ -96,88 +88,50 @@ class BoundaryGeometry : public BodyPartByParticle
     };
 };
 
+
 //----------------------------------------------------------------------
 //	RadialForce.
 //----------------------------------------------------------------------
-/*
- * 使用说明:
- *  - RadialForce: 当你需要恒定的径向力时使用。
- *  - StartupRadialForce: 当你需要一个平滑的启动过程，力逐渐增加并且有一个基于正弦的平滑过渡时使用。
- *  - IncreaseToFullRadialForce: 当你需要线性增加径向力到目标值，以平缓地达到完全力时使用。
- */
-
 class RadialForce
 {
   protected:
-    Real magnitude_;
-    int axis_;
-    Vecd translation_;      // 支架的平移向量
-    Mat3d rotation_matrix_; // 旋转矩阵，将力从全局坐标转换到局部坐标
+    Vecd reference_acceleration_;
+    int axis_; // xAxis, yAxis, or zAxis
 
   public:
-    RadialForce(Real magnitude, int axis, const Vecd &translation = Vecd::Zero(), const Mat3d &rotation_matrix = Mat3d::Identity())
-        : magnitude_(magnitude), axis_(axis), translation_(translation), rotation_matrix_(rotation_matrix) {}
-    RadialForce() {}
+    RadialForce(Real magnitude, int axis)
+        : reference_acceleration_(Vecd::Zero()), axis_(axis)
+    {
+        // Set the magnitude along the specified axis.
+        reference_acceleration_[axis_] = magnitude;
+    }
     ~RadialForce() {}
 
     Vecd InducedAcceleration(const Vecd &position = Vecd::Zero(), Real physical_time = 0.0) const
     {
-        // 1. 将全局坐标转换为支架的局部坐标系
-        Vecd global_position = position - translation_;                       // 应用平移
-        Vecd local_position = rotation_matrix_.transpose() * global_position; // 转换到局部坐标系
-
-        // 2. 计算局部坐标系中的径向力
-        Vecd radial_direction = local_position; // 获取径向分量
-
-        // 根据中心轴，将中心轴方向上的分量置为0
-        switch (axis_)
+        // Calculate radial direction based on the axis.
+        Vecd radial_direction = Vecd::Zero();
+        if (axis_ == xAxis)
         {
-        case xAxis:
-            radial_direction[0] = 0; // 中心轴为X轴，则作用在Y、Z方向
-            break;
-        case yAxis:
-            radial_direction[1] = 0; // 中心轴为Y轴，则作用在X、Z方向
-            break;
-        case zAxis:
-            radial_direction[2] = 0; // 中心轴为Z轴，则作用在X、Y方向
-            break;
-        default:
-            throw std::runtime_error("Invalid axis specified for RadialForce");
+            radial_direction[1] = position[1];
+            radial_direction[2] = position[2];
+        }
+        else if (axis_ == yAxis)
+        {
+            radial_direction[0] = position[0];
+            radial_direction[2] = position[2];
+        }
+        else if (axis_ == zAxis)
+        {
+            radial_direction[0] = position[0];
+            radial_direction[1] = position[1];
         }
 
-        // 3. 归一化径向力方向
-        Real distance = local_position[axis_];
-        if (std::abs(distance) < Eps)
-        {
-            radial_direction = Vecd::Zero();
-        }
-        else
-        {
-            radial_direction.normalize();
-        }
+        // Normalize to get unit vector in radial direction.
+        radial_direction /= (radial_direction.norm() + 1e-6); // Adding small value to avoid division by zero.
 
-        // 4. 施加径向力并将其转换回全局坐标系
-        Vecd global_radial_direction = rotation_matrix_ * radial_direction;
-
-        return magnitude_ * global_radial_direction;
-    }
-
-    /** 更新力的大小 */
-    void setForceMagnitude(Real new_force_magnitude)
-    {
-        magnitude_ = new_force_magnitude;
-    }
-
-    /** 获取当前力的大小 */
-    Real getForceMagnitude() const
-    {
-        return magnitude_;
-    }
-
-    /** 设置中心轴 */
-    void setAxis(int axis)
-    {
-        axis_ = axis;
+        // Return the radial acceleration based on the magnitude defined.
+        return reference_acceleration_[axis_] * radial_direction;
     }
 };
 
@@ -186,15 +140,15 @@ class StartupRadialForce : public RadialForce
     Real target_time_;
 
   public:
-    StartupRadialForce(Real target_magnitude, int axis, Real target_time, const Vecd &translation = Vecd::Zero(), const Mat3d &rotation_matrix = Mat3d::Identity())
-        : RadialForce(target_magnitude, axis, translation, rotation_matrix), target_time_(target_time) {}
+    StartupRadialForce(Real magnitude, int axis, Real target_time)
+        : RadialForce(magnitude, axis), target_time_(target_time) {}
     ~StartupRadialForce() {}
 
     Vecd InducedAcceleration(const Vecd &position, Real physical_time) const
     {
         Real time_factor = physical_time / target_time_;
         Vecd acceleration = 0.5 * Pi * sin(Pi * time_factor) * RadialForce::InducedAcceleration(position);
-        return time_factor < 1.0 ? acceleration : RadialForce::InducedAcceleration(position);
+        return time_factor < 1.0 ? acceleration : Vecd::Zero();
     }
 };
 
@@ -203,8 +157,8 @@ class IncreaseToFullRadialForce : public RadialForce
     Real time_to_full_force_;
 
   public:
-    IncreaseToFullRadialForce(Real magnitude, int axis, Real time_to_full_force, const Vecd &translation = Vecd::Zero(), const Mat3d &rotation_matrix = Mat3d::Identity())
-        : RadialForce(magnitude, axis, translation, rotation_matrix), time_to_full_force_(time_to_full_force) {}
+    IncreaseToFullRadialForce(Real magnitude, int axis, Real time_to_full_force)
+        : RadialForce(magnitude, axis), time_to_full_force_(time_to_full_force) {}
     ~IncreaseToFullRadialForce() {}
 
     Vecd InducedAcceleration(const Vecd &position, Real physical_time) const
@@ -215,8 +169,9 @@ class IncreaseToFullRadialForce : public RadialForce
     }
 };
 
+
 //----------------------------------------------------------------------
-//	RadialForceApplication.
+//  RadialForceApplication.
 //----------------------------------------------------------------------
 template <class RadialForceType>
 class RadialForceApplication : public ForcePrior
@@ -230,17 +185,16 @@ class RadialForceApplication : public ForcePrior
   public:
     RadialForceApplication(SPHBody &sph_body, const RadialForceType &radial_force)
         : ForcePrior(sph_body, "RadialForce"), radial_force_(radial_force),
-          pos_(this->particles_->getVariableDataByName<Vecd>("Position")),
-          mass_(this->particles_->registerStateVariable<Real>("Mass")),
-          physical_time_(this->sph_system_.getSystemVariableDataByName<Real>("PhysicalTime")) {}
-
+          pos_(particles_->getVariableDataByName<Vecd>("Position")),
+          mass_(particles_->registerStateVariable<Real>("Mass")),
+          physical_time_(sph_system_.getSystemVariableDataByName<Real>("PhysicalTime")) {}
     virtual ~RadialForceApplication() {}
 
     void update(size_t index_i, Real dt = 0.0)
     {
-        current_force_[index_i] = mass_[index_i] * radial_force_.InducedAcceleration(pos_[index_i], *physical_time_);
-        force_prior_[index_i] += current_force_[index_i] - previous_force_[index_i];
-        previous_force_[index_i] = current_force_[index_i];
+        current_force_[index_i] =
+            mass_[index_i] * radial_force_.InducedAcceleration(pos_[index_i], *physical_time_);
+        ForcePrior::update(index_i, dt);
     }
 };
 
@@ -313,80 +267,5 @@ void printBoundingBoxAndDelta(const BoundingBox &bbox)
     std::cout << lower_bound[2] << " to " << upper_bound[2] << " (delta: " << delta[2] << ")\n";
 }
 
-//----------------------------------------------------------------------
-//	ReloadParticleRecordingToXml
-//----------------------------------------------------------------------
-/**
- * @class ReloadParticleRecordingToXml
- * @brief This class records the latest particle state in XML format, inheriting directly from BaseIO.
- * It writes the particle state to an XML file which can be used for reloading the particle state in future simulations.
- */
-class ReloadParticleRecordingToXml : public BaseIO
-{
-  public:
-    // 构造函数，传入需要记录状态的 SPHBody
-    ReloadParticleRecordingToXml(SPHBody &sph_body)
-        : BaseIO(sph_body.getSPHSystem()), sph_body_(sph_body), base_particles_(sph_body.getBaseParticles())
-    {
-        // 确保输出文件夹正确设置
-        output_folder_ = io_environment_.output_folder_ + "/particle-reload";
-        if (!fs::exists(output_folder_))
-        {
-            fs::create_directories(output_folder_);
-        }
-    }
 
-    // 公共函数，将当前粒子状态写入 XML 文件
-    void writeToFile(size_t iteration_step)
-    {
-        // 将迭代步骤转换为字符串，用于文件名
-        std::string sequence = std::to_string(iteration_step);
-        // 构造保存粒子重载数据的文件路径（XML格式）
-        std::string filefullpath = output_folder_ + "/particle_reload_" + sph_body_.getName() + "_" + sequence + ".xml";
-
-        // 如果文件已存在，删除旧文件
-        if (fs::exists(filefullpath))
-        {
-            fs::remove(filefullpath);
-        }
-
-        // 打开输出文件流
-        std::ofstream out_file(filefullpath.c_str(), std::ios::trunc);
-
-        // 开始写入 XML 结构
-        out_file << "<?xml version=\"1.0\"?>\n";
-        out_file << "<particles>\n";
-
-        // 遍历所有真实粒子并写入数据
-        size_t total_real_particles = base_particles_.TotalRealParticles();
-        for (size_t i = 0; i != total_real_particles; ++i)
-        {
-            Vecd position = base_particles_.ParticlePositions()[i];
-            Real volume = base_particles_.VolumetricMeasures()[i];
-
-            // 以单行格式写入每个粒子的属性
-            out_file << "  <particle VolumetricMeasure=\"" << volume << "\" Position=\""
-                     << position[0] << ", " << position[1];
-
-            // 如果是三维项目，则添加第三个坐标
-            if (position.size() == 3)
-            {
-                out_file << ", " << position[2];
-            }
-
-            out_file << "\"/>\n";
-        }
-
-        // 关闭 XML 结构
-        out_file << "</particles>\n";
-        out_file.close();
-
-        // 调试：确认文件已写入
-        std::cout << "Particle state for " << sph_body_.getName() << " written to " << filefullpath << std::endl;
-    }
-
-  private:
-    SPHBody &sph_body_;             // 我们正在写入粒子状态的 SPHBody
-    BaseParticles &base_particles_; // 该物体的粒子
-    std::string output_folder_;     // 输出文件将被写入的文件夹
-}
+        
