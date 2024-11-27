@@ -6,7 +6,7 @@
  * @author 	Sukang Peng
  */
 
-#include "Z_test_3d_straight_v2_E_VIP.h"
+#include "Z_test_3d_narrow_v1_E_VIP.h"
 #include "sphinxsys.h"
 using namespace SPH;
 //-----------------------------------------------------------------------------------------------------------

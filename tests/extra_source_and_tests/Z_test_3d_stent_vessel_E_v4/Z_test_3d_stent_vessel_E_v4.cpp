@@ -1,33 +1,46 @@
 /**
- * @file     Z_test_3d_v8_vessel_solid_test1.cpp
- * @brief 	 test 正常的血管流动
+ * @file     Z_test_3d_stent_v2.cpp
+ * @brief 	 test 支架
  * @details  test
  *
  * @author 	Sukang Peng
  */
 
-#include "Z_test_3d_straight_v2_E_VIP.h"
+#include "Z_test_3d_stent_vessel_E_v4.h"
 #include "sphinxsys.h"
-using namespace SPH;
-//-----------------------------------------------------------------------------------------------------------
+using namespace SPH; 
+//----------------------------------------------------------------------
 //	Main program starts here.
-//-----------------------------------------------------------------------------------------------------------
+//----------------------------------------------------------------------
 int main(int ac, char *av[])
 {
     //----------------------------------------------------------------------
     //	Build up the environment of a SPHSystem with global controls.
     //----------------------------------------------------------------------
     SPHSystem sph_system(system_domain_bounds, resolution_ref);
-    //sph_system.setRunParticleRelaxation(true); // Tag for run particle relaxation for body-fitted distribution
-    //sph_system.setReloadParticles(false);      // Tag for computation with save particles distribution
-    sph_system.setRunParticleRelaxation(false); // Tag for run particle relaxation for body-fitted distribution
-    sph_system.setReloadParticles(true);        // Tag for computation with save particles distribution
+
 #ifdef BOOST_AVAILABLE
     sph_system.handleCommandlineOptions(ac, av)->setIOEnvironment();
 #endif
     //----------------------------------------------------------------------
     //	Creating body, materials and particles.
     //----------------------------------------------------------------------
+    SolidBody vessel_wall(sph_system, makeShared<VesselWall>("VesselWall"));
+    vessel_wall.defineAdaptationRatios(1.15, 1.5);
+    vessel_wall.defineBodyLevelSetShape()->correctLevelSetSign()->writeLevelSet(sph_system);
+    vessel_wall.defineMaterial<NeoHookeanSolid>(rho0_s_vessel, Youngs_modulus_vessel, poisson_vessel);
+    //vessel_wall.defineMaterial<Solid>();
+    vessel_wall.generateParticles<BaseParticles, Reload>(vessel_wall.getName());
+    // vessel_wall.generateParticles<BaseParticles, Lattice>();
+
+    BodyStatesRecordingToVtp write_vessel_wall_to_vtp(vessel_wall);
+    write_vessel_wall_to_vtp.writeToFile(0);
+
+    //sph_system.setRunParticleRelaxation(true); // Tag for run particle relaxation for body-fitted distribution
+    //sph_system.setReloadParticles(false);      // Tag for computation with save particles distribution
+    sph_system.setRunParticleRelaxation(false); // Tag for run particle relaxation for body-fitted distribution
+    sph_system.setReloadParticles(true);      // Tag for computation with save particles distribution
+
     FluidBody water_block(sph_system, makeShared<WaterBlock>("WaterBody"));
     water_block.defineBodyLevelSetShape()->correctLevelSetSign()->writeLevelSet(sph_system);
     water_block.defineMaterial<WeaklyCompressibleFluid>(rho0_f, c_f, mu_f);
@@ -36,20 +49,8 @@ int main(int ac, char *av[])
         ? water_block.generateParticlesWithReserve<BaseParticles, Reload>(in_outlet_particle_buffer, water_block.getName())
         : water_block.generateParticles<BaseParticles, Lattice>();
 
-    // BodyStatesRecordingToVtp write_water_block_to_vtp(water_block);
-    // write_water_block_to_vtp.writeToFile(0);
-
-    SolidBody vessel_wall(sph_system, makeShared<VesselWall>("VesselWall"));
-    vessel_wall.defineAdaptationRatios(1.15, 1.5);
-    vessel_wall.defineBodyLevelSetShape()->correctLevelSetSign()->writeLevelSet(sph_system);
-    //vessel_wall.defineMaterial<Solid>();
-    vessel_wall.defineMaterial<NeoHookeanSolid>(rho0_s, Youngs_modulus, poisson);
-    (!sph_system.RunParticleRelaxation() && sph_system.ReloadParticles())
-        ? vessel_wall.generateParticles<BaseParticles, Reload>(vessel_wall.getName())
-        : vessel_wall.generateParticles<BaseParticles, Lattice>();
-
-    // BodyStatesRecordingToVtp write_vessel_wall_to_vtp(vessel_wall);
-    // write_vessel_wall_to_vtp.writeToFile(0);
+    //BodyStatesRecordingToVtp write_water_block_to_vtp(water_block);
+    //write_water_block_to_vtp.writeToFile(0);
     //----------------------------------------------------------------------
     //	Run particle relaxation for body-fitted distribution if chosen.
     //----------------------------------------------------------------------
@@ -58,30 +59,22 @@ int main(int ac, char *av[])
         //----------------------------------------------------------------------
         //	Define body relation map used for particle relaxation.
         //----------------------------------------------------------------------
-        InnerRelation wall_inner(vessel_wall);
         InnerRelation blood_inner(water_block);
         //----------------------------------------------------------------------
         //	Methods used for particle relaxation.
         //----------------------------------------------------------------------
         using namespace relax_dynamics;
-        SimpleDynamics<RandomizeParticlePosition> random_vessel_wall_particles(vessel_wall);
         SimpleDynamics<RandomizeParticlePosition> random_blood_particles(water_block);
-        RelaxationStepInner relaxation_step_wall_inner(wall_inner);
         RelaxationStepInner relaxation_step_blood_inner(blood_inner);
         /** Write the body state to Vtp file. */
-        BodyStatesRecordingToVtp write_wall_state_to_vtp(vessel_wall);
         BodyStatesRecordingToVtp write_blood_state_to_vtp(water_block);
         /** Write the particle reload files. */
-        ReloadParticleIO write_wall_particle_reload_files(vessel_wall);
         ReloadParticleIO write_blood_particle_reload_files(water_block);
         //----------------------------------------------------------------------
         //	Particle relaxation starts here.
         //----------------------------------------------------------------------
-        random_vessel_wall_particles.exec(0.25);
         random_blood_particles.exec(0.25);
-        relaxation_step_wall_inner.SurfaceBounding().exec();
         relaxation_step_blood_inner.SurfaceBounding().exec();
-        write_wall_state_to_vtp.writeToFile(0.0);
         write_blood_state_to_vtp.writeToFile(0.0);
         //----------------------------------------------------------------------
         //	Relax particles of the vessel wall.
@@ -89,19 +82,16 @@ int main(int ac, char *av[])
         int ite_p = 0;
         while (ite_p < 1000)
         {
-            relaxation_step_wall_inner.exec();
             relaxation_step_blood_inner.exec();
             ite_p += 1;
             if (ite_p % 200 == 0)
             {
                 std::cout << std::fixed << std::setprecision(9) << "Relaxation steps for the vessel wall N = " << ite_p << "\n";
-                write_wall_state_to_vtp.writeToFile(ite_p);
                 write_blood_state_to_vtp.writeToFile(ite_p);
             }
         }
         std::cout << "The physics relaxation process of vessel wall finish !" << std::endl;
         /** Output results. */
-        write_wall_particle_reload_files.writeToFile(0);
         write_blood_particle_reload_files.writeToFile(0);
         return 0;
     }
@@ -228,7 +218,7 @@ int main(int ac, char *av[])
     //----------------------------------------------------------------------
     Real &physical_time = *sph_system.getSystemVariableDataByName<Real>("PhysicalTime");
     size_t number_of_iterations = 0.0;
-    int screen_output_interval =500;
+    int screen_output_interval = 500;
     Real end_time = 10.0;
     Real Output_Time = end_time / 200.0; /**< Time stamps for output of body states. */
     Real dt = 0.0;                       /**< Default acoustic time step sizes. */
@@ -297,7 +287,7 @@ int main(int ac, char *av[])
                     vessel_wall_stress_relaxation_second_half.exec(dt_s);
                     dt_s_sum += dt_s;
                     inner_ite_dt_s++;
-                    //write_body_states.writeToFile();
+                    // write_body_states.writeToFile();
                 }
                 average_velocity_and_acceleration.update_averages_.exec(dt);
 
@@ -353,6 +343,7 @@ int main(int ac, char *av[])
               << interval_computing_pressure_relaxation.seconds() << "\n";
     std::cout << std::fixed << std::setprecision(9) << "interval_updating_configuration = "
               << interval_updating_configuration.seconds() << "\n";
+
 
     return 0;
 }
