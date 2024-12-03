@@ -18,45 +18,30 @@ constexpr Real PI = 3.14159265358979323846;
 //----------------------------------------------------------------------
 //	Set the file path to the data file
 //----------------------------------------------------------------------
-std::string vessel_wall = "./input/vessel_wall.stl";
-std::string vessel_fluid = "./input/vessel_fluid.stl";
-std::string stent = "./input/ml_stent_modified_0.0034.stl";
+std::string stent_path = "./input/stent_GrabCAD.stl";
+std::string vessel_wall_path = "./input/vessel_wall_narrow1.stl";
 //----------------------------------------------------------------------
 //	Basic geometry parameters
 //----------------------------------------------------------------------
-Vec3d translation_water_block(0.0, 0.0, 0.0);                             /**< 水块的初始平移，单位：m (米) */
-Vec3d translation_wall_boundary(0.0, 0.0, 0.0);                           /**< 血管壁的初始平移，单位：m (米) */
-Vec3d translation_stent(0.0, 0.0, 0.0);                                   /**< 支架的初始平移，单位：m (米) */
-Real length_scale = 1.0;                                                  /**< 长度比例因子，无量纲 (无单位) */
-Real resolution_ref = 0.0003;                                            /**< 初始参考粒子间距，单位：m (米) */
-//Real resolution_ref = 0.001;                                             /**< 初始参考粒子间距，单位：m (米) */
-Real BW = resolution_ref * 4.0;                                           /**< 发射器的参考大小，单位：m (米) */
+Vec3d translation_vessel_wall(0.0, 0.0, 0.0); /**< 血管壁的初始平移，单位：m (米) */
+Vec3d translation_stent(0.0125, 0.0, 0.0); /**< 支架的初始平移，单位：m (米) */
+Real length_scale_stent = 1e-3;                 /**< 长度比例因子，无量纲 (无单位) */
+Real length_scale = 1.0;                        /**< 长度比例因子，无量纲 (无单位) */
+Real resolution_ref = 0.3 * length_scale_stent; /**< 初始参考粒子间距，单位：m (米) */
+// resolution_ref = 0.0003;                                            /**< 初始参考粒子间距，单位：m (米) */
 Real diameter = 0.004;                                                    /**< 血管外径，单位：m (米) */
-Vec3d domain_lower_bound(-0.001, -0.003, -0.003);                         /**< 系统域的下边界，单位：m (米) */
-Vec3d domain_upper_bound(0.026, 0.003, 0.003);                            /**< 系统域的上边界，单位：m (米) */
+Vec3d domain_lower_bound(-0.001, -0.004, -0.004);                         /**< 系统域的下边界，单位：m (米) */
+Vec3d domain_upper_bound(0.03, 0.004, 0.004);                             /**< 系统域的上边界，单位：m (米) */
 BoundingBox system_domain_bounds(domain_lower_bound, domain_upper_bound); /**< 系统域的边界框，单位：m (米) */
-Real full_length = 0.025;                                                 /**< 血管的总长度，单位：m (米) */
-//----------------------------------------------------------------------
-//	Global parameters on the fluid properties
-//----------------------------------------------------------------------
-Real rho0_f = 1060.0; /**< 流体的参考密度，单位：kg/m³ (千克每立方米) */
-Real Outlet_pressure = 0.0;
-Real Re = 100.0; /**< 雷诺数，无量纲 (无单位) */
-Real U_f = 0.1;  /**< Characteristic velocity. */
-Real mu_f = rho0_f * U_f * diameter / Re;
-Real c_f = 10.0 * U_f;
-// Real mu_f = 3.6e-3;   /**< 动态粘度，单位：Pa·s (帕·秒) */
-// const Real U_f = Re * mu_f / rho0_f / diameter;
-// const Real U_max = 2.0 * U_f;  // parabolic inflow, Thus U_max = 2*U_f
-// const Real c_f = 10.0 * U_max; /**< Reference sound speed. */
+Real full_length = 0.025;
 //----------------------------------------------------------------------
 //	Global parameters for vessel (血管壁参数)
 //----------------------------------------------------------------------
 /*Vessel Material*/
-Real rho0_s = 1265;              /**< 血管壁的密度，单位：kg/m³ (千克每立方米) */
-Real poisson = 0.45;             /**< 血管壁的泊松比，无量纲 (无单位) */
-Real Youngs_modulus = 50000.0;   /**< 血管壁的杨氏模量，单位：Pa (帕) */
-Real physical_viscosity = 500.0; /**< 血管壁的物理粘度，单位：Pa·s (帕·秒) */
+Real rho0_s_vessel = 1265;              /**< 血管壁的密度，单位：kg/m³ (千克每立方米) */
+Real poisson_vessel = 0.45;             /**< 血管壁的泊松比，无量纲 (无单位) */
+Real Youngs_modulus_vessel = 1e5;     /**< 血管壁的杨氏模量，单位：Pa (帕) */
+Real physical_viscosity_vessel = 100.0; /**< 血管壁的物理粘度，单位：Pa·s (帕·秒) */
 //----------------------------------------------------------------------
 //	Global parameters for stent (血管壁参数)
 //----------------------------------------------------------------------
@@ -64,34 +49,7 @@ Real physical_viscosity = 500.0; /**< 血管壁的物理粘度，单位：Pa·s 
 Real rho0_s_stent = 6450.0;            /**< 支架的密度，单位：kg/m³ (千克每立方米) */
 Real poisson_stent = 0.33;             /**< 支架的泊松比，无量纲 (无单位) */
 Real youngs_modulus_stent = 1e6;       /**< 支架的杨氏模量，单位：Pa (帕) */
-Real physical_viscosity_stent = 100.0; /**< 支架的物理粘度，单位：Pa·s (帕·秒) */
-//----------------------------------------------------------------------
-// Inflow velocity
-//----------------------------------------------------------------------
-struct InflowVelocity
-{
-    Real u_ref_, t_ref_;
-    AlignedBoxShape &aligned_box_;
-    Vecd halfsize_;
-
-    template <class BoundaryConditionType>
-    InflowVelocity(BoundaryConditionType &boundary_condition)
-        : u_ref_(U_f), t_ref_(2.0),
-          aligned_box_(boundary_condition.getAlignedBox()),
-          halfsize_(aligned_box_.HalfSize()) {}
-
-    Vecd operator()(Vecd &position, Vecd &velocity, Real current_time)
-    {
-        Vecd target_velocity = Vecd::Zero(); // 初始为零，确保边界条件不会受到上一步速度影响
-        Real run_time = current_time;
-
-        // 改进的速度平滑函数
-        Real u_ave = run_time < t_ref_ ? u_ref_ * (1.0 - exp(-run_time / t_ref_)) : u_ref_;
-        target_velocity[0] = u_ave; // 假设 x 方向是主要流入方向
-
-        return target_velocity;
-    }
-};
+Real physical_viscosity_stent = 1000.0; /**< 支架的物理粘度，单位：Pa·s (帕·秒) */
 //----------------------------------------------------------------------
 //	Define SPH bodies.
 //----------------------------------------------------------------------
@@ -100,16 +58,15 @@ class Stent : public ComplexShape
   public:
     explicit Stent(const std::string &shape_name) : ComplexShape(shape_name)
     {
-        add<TriangleMeshShapeSTL>(stent, translation_stent, length_scale);
+        add<TriangleMeshShapeSTL>(stent_path, translation_stent, length_scale);
     }
 };
-
 class VesselWall : public ComplexShape
 {
   public:
     explicit VesselWall(const std::string &shape_name) : ComplexShape(shape_name)
     {
-        add<TriangleMeshShapeSTL>(vessel_wall, translation_wall_boundary, length_scale);
+        add<TriangleMeshShapeSTL>(vessel_wall_path, translation_vessel_wall, length_scale);
     }
 };
 //----------------------------------------------------------------------
@@ -138,158 +95,140 @@ class BoundaryGeometry : public BodyPartByParticle
     };
 };
 
+
 //----------------------------------------------------------------------
 // RadialForce.
 //----------------------------------------------------------------------
-/**
- * @class RadialForce
- * @brief This class defines a radial force that can be used to simulate the expansion of a stent.
- */
-class RadialForce : public Gravity
+class RadialForce
 {
   protected:
-    Vecd translation_;      // 支架的平移向量
-    Real force_magnitude_;  // 力的大小
-    Mat3d rotation_matrix_; // 旋转矩阵，将力从全局坐标转换到局部坐标
+    Vecd reference_acceleration_;
+    int axis_; // xAxis, yAxis, or zAxis
 
   public:
-    RadialForce(const Vecd &translation, Real force_magnitude, const Mat3d &rotation_matrix)
-        : Gravity(Vecd::Zero()), translation_(translation), force_magnitude_(force_magnitude), rotation_matrix_(rotation_matrix) {}
-
-    virtual ~RadialForce() {}
-
-    /** This function computes the induced radial acceleration along支架坐标系中的径向力 */
-    virtual Vecd InducedAcceleration(const Vecd &position, Real physical_time = 0.0) const
+    RadialForce(Real magnitude, int axis)
+        : reference_acceleration_(Vecd::Zero()), axis_(axis)
     {
-        // 1. 将全局坐标转换为支架的局部坐标系
-        Vecd global_position = position - translation_;                       // 应用平移
-        Vecd local_position = rotation_matrix_.transpose() * global_position; // 转换到局部坐标系
+        // Set the magnitude along the specified axis.
+        reference_acceleration_[axis_] = magnitude;
+    }
+    ~RadialForce() {}
 
-        // 2. 计算局部坐标系中的径向力
-        Vecd radial_direction = local_position; // 获取径向分量
-        radial_direction[2] = 0;                // 将Z轴分量置为0，确保径向力仅在XY平面
-
-        // 3. 归一化径向力方向
-        if (radial_direction.norm() > Eps)
+    Vecd InducedAcceleration(const Vecd &position = Vecd::Zero(), Real physical_time = 0.0) const
+    {
+        // Calculate radial direction based on the axis.
+        Vecd radial_direction = Vecd::Zero();
+        if (axis_ == xAxis)
         {
-            radial_direction.normalize();
+            radial_direction[1] = position[1];
+            radial_direction[2] = position[2];
         }
-        else
+        else if (axis_ == yAxis)
         {
-            radial_direction = Vecd::Zero();
+            radial_direction[0] = position[0];
+            radial_direction[2] = position[2];
+        }
+        else if (axis_ == zAxis)
+        {
+            radial_direction[0] = position[0];
+            radial_direction[1] = position[1];
         }
 
-        // 4. 施加径向力并将其转换回全局坐标系
-        Vecd global_radial_direction = rotation_matrix_ * radial_direction;
+        // Normalize to get unit vector in radial direction.
+        radial_direction /= (radial_direction.norm() + 1e-6); // Adding small value to avoid division by zero.
 
-        return force_magnitude_ * global_radial_direction;
+        // Return the radial acceleration based on the magnitude defined.
+        return reference_acceleration_[axis_] * radial_direction;
     }
 
-    /** 更新力的大小 */
-    void setForceMagnitude(Real new_force_magnitude)
+    Vecd GetCurrentForce() const
     {
-        force_magnitude_ = new_force_magnitude;
-    }
-
-    /** 获取当前力的大小 */
-    Real getForceMagnitude() const
-    {
-        return force_magnitude_;
+        // Return the current force vector along the specified axis.
+        Vecd force_vector = reference_acceleration_;
+        return force_vector;
     }
 };
 
+class StartupRadialForce : public RadialForce
+{
+    Real target_time_;
+
+  public:
+    StartupRadialForce(Real magnitude, int axis, Real target_time)
+        : RadialForce(magnitude, axis), target_time_(target_time) {}
+    ~StartupRadialForce() {}
+
+    Vecd InducedAcceleration(const Vecd &position, Real physical_time) const
+    {
+        Real time_factor = physical_time / target_time_;
+        Real sine_value = (time_factor < 1.0) ? sin(Pi / 2 * time_factor) : 1.0; // 只取上升部分，达到最大值后保持为 1.0
+
+        // 使用相同的逻辑计算加速度
+        Vecd acceleration = sine_value * RadialForce::InducedAcceleration(position);
+        return acceleration;
+    }
+
+    Vecd GetCurrentForce(Real physical_time) const
+    {
+        Real time_factor = physical_time / target_time_;
+        Real sine_value = (time_factor < 1.0) ? sin(Pi / 2 * time_factor) : 1.0; // 只取上升部分，达到最大值后保持为 1.0
+
+        Real current_magnitude = sine_value * reference_acceleration_[axis_];
+
+        Vecd force_vector = Vecd::Zero();
+        force_vector[axis_] = current_magnitude;
+        return force_vector;
+    }
+};
+
+
+
+class IncreaseToFullRadialForce : public RadialForce
+{
+    Real time_to_full_force_;
+
+  public:
+    IncreaseToFullRadialForce(Real magnitude, int axis, Real time_to_full_force)
+        : RadialForce(magnitude, axis), time_to_full_force_(time_to_full_force) {}
+    ~IncreaseToFullRadialForce() {}
+
+    Vecd InducedAcceleration(const Vecd &position, Real physical_time) const
+    {
+        Real time_factor = physical_time / time_to_full_force_;
+        Vecd full_acceleration = RadialForce::InducedAcceleration(position);
+        return time_factor < 1.0 ? time_factor * full_acceleration : full_acceleration;
+    }
+};
+
+
+
 //----------------------------------------------------------------------
-// RadialExpansionForce.
+//  RadialForceApplication.
 //----------------------------------------------------------------------
-template <class GravityType>
-class RadialExpansionForce : public GravityForce<GravityType>
+template <class RadialForceType>
+class RadialForceApplication : public ForcePrior
 {
   protected:
-    RadialForce &radial_force_; // 径向力
-    StdLargeVec<Vecd> &pos_;    // 粒子的位置
-    StdLargeVec<Real> &mass_;   // 粒子的质量
-    Real *physical_time_;       // 物理时间
+    const RadialForceType radial_force_;
+    Vecd *pos_;
+    Real *mass_;
+    Real *physical_time_;
 
   public:
-    explicit RadialExpansionForce(SPHBody &sph_body, RadialForce &radial_force)
-        : GravityForce<GravityType>(sph_body, radial_force), radial_force_(radial_force),
-          pos_(*this->particles_->getVariableDataByName<Vecd>("Position")),
-          mass_(*this->particles_->registerStateVariable<Real>("Mass")),
-          physical_time_(this->sph_system_.getSystemVariableDataByName<Real>("PhysicalTime")) {}
-    virtual ~RadialExpansionForce() {}
+    RadialForceApplication(SPHBody &sph_body, const RadialForceType &radial_force)
+        : ForcePrior(sph_body, "RadialForce"), radial_force_(radial_force),
+          pos_(particles_->getVariableDataByName<Vecd>("Position")),
+          mass_(particles_->registerStateVariable<Real>("Mass")),
+          physical_time_(sph_system_.getSystemVariableDataByName<Real>("PhysicalTime")) {}
+    virtual ~RadialForceApplication() {}
 
-    void update(size_t index_i, Real dt = 0.0) override
+    void update(size_t index_i, Real dt = 0.0)
     {
-        // 计算径向力
-        this->current_force_[index_i] = mass_[index_i] * radial_force_.InducedAcceleration(pos_[index_i], *physical_time_);
-        // 调用 ForcePrior 的 update 方法
-        GravityForce<GravityType>::update(index_i, dt);
+        current_force_[index_i] =
+            mass_[index_i] * radial_force_.InducedAcceleration(pos_[index_i], *physical_time_);
+        ForcePrior::update(index_i, dt);
     }
 };
-
-//----------------------------------------------------------------------
-//	RotationCalculator
-//----------------------------------------------------------------------
-struct RotationCalculator
-{
-    Vec3d rotation_axis;   // 旋转轴
-    Real rotation_angle;   // 旋转角度（弧度）
-    Mat3d rotation_matrix; // 旋转矩阵
-
-    // 构造函数：根据两点和初始方向向量计算旋转矩阵、轴和角度
-    RotationCalculator(const Vec3d &pointA, const Vec3d &pointB, const Vec3d &initial_direction)
-    {
-        Vec3d target_direction = (pointB - pointA).normalized();             // 目标方向向量
-        Vec3d normalized_initial_direction = initial_direction.normalized(); // 规范化初始方向向量
-
-        // 计算旋转轴
-        rotation_axis = normalized_initial_direction.cross(target_direction).normalized();
-
-        // 计算旋转角度
-        rotation_angle = std::acos(normalized_initial_direction.dot(target_direction));
-
-        // 构造旋转矩阵
-        rotation_matrix = Eigen::AngleAxis<Real>(rotation_angle, rotation_axis).toRotationMatrix();
-    }
-
-    // 打印旋转矩阵
-    void printRotationMatrix() const
-    {
-        std::cout << "Rotation Matrix:\n"
-                  << rotation_matrix << std::endl;
-    }
-
-    // 打印旋转轴
-    void printRotationAxis() const
-    {
-        std::cout << "Rotation Axis: (" << rotation_axis.x() << ", " << rotation_axis.y() << ", " << rotation_axis.z() << ")" << std::endl;
-    }
-
-    // 打印旋转角度
-    void printRotationAngle() const
-    {
-        std::cout << "Rotation Angle (in radians): " << rotation_angle << std::endl;
-    }
-
-    // 获取旋转矩阵
-    Mat3d getRotationMatrix() const
-    {
-        return rotation_matrix;
-    }
-
-    // 获取旋转轴
-    Vec3d getRotationAxis() const
-    {
-        return rotation_axis;
-    }
-
-    // 获取旋转角度
-    Real getRotationAngle() const
-    {
-        return rotation_angle;
-    }
-};
-
 
 //----------------------------------------------------------------------
 // BoundingBox Calculation Functions
@@ -359,6 +298,71 @@ void printBoundingBoxAndDelta(const BoundingBox &bbox)
     std::cout << lower_bound[1] << " to " << upper_bound[1] << " (delta: " << delta[1] << ")\n";
     std::cout << lower_bound[2] << " to " << upper_bound[2] << " (delta: " << delta[2] << ")\n";
 }
+
+
+//----------------------------------------------------------------------
+//	RotationCalculator
+//----------------------------------------------------------------------
+struct RotationCalculator
+{
+    Vec3d rotation_axis;   // 旋转轴
+    Real rotation_angle;   // 旋转角度（弧度）
+    Mat3d rotation_matrix; // 旋转矩阵
+
+    // 构造函数：根据两点和初始方向向量计算旋转矩阵、轴和角度
+    RotationCalculator(const Vec3d &pointA, const Vec3d &pointB, const Vec3d &initial_direction)
+    {
+        Vec3d target_direction = (pointB - pointA).normalized();             // 目标方向向量
+        Vec3d normalized_initial_direction = initial_direction.normalized(); // 规范化初始方向向量
+
+        // 计算旋转轴
+        rotation_axis = normalized_initial_direction.cross(target_direction).normalized();
+
+        // 计算旋转角度
+        rotation_angle = std::acos(normalized_initial_direction.dot(target_direction));
+
+        // 构造旋转矩阵
+        rotation_matrix = Eigen::AngleAxis<Real>(rotation_angle, rotation_axis).toRotationMatrix();
+    }
+
+    // 打印旋转矩阵
+    void printRotationMatrix() const
+    {
+        std::cout << "Rotation Matrix:\n"
+                  << rotation_matrix << std::endl;
+    }
+
+    // 打印旋转轴
+    void printRotationAxis() const
+    {
+        std::cout << "Rotation Axis: (" << rotation_axis.x() << ", " << rotation_axis.y() << ", " << rotation_axis.z() << ")" << std::endl;
+    }
+
+    // 打印旋转角度
+    void printRotationAngle() const
+    {
+        std::cout << "Rotation Angle (in radians): " << rotation_angle << std::endl;
+    }
+
+    // 获取旋转矩阵
+    Mat3d getRotationMatrix() const
+    {
+        return rotation_matrix;
+    }
+
+    // 获取旋转轴
+    Vec3d getRotationAxis() const
+    {
+        return rotation_axis;
+    }
+
+    // 获取旋转角度
+    Real getRotationAngle() const
+    {
+        return rotation_angle;
+    }
+};
+
 
 //----------------------------------------------------------------------
 //	ReloadParticleRecordingToXml
@@ -437,11 +441,3 @@ class ReloadParticleRecordingToXml : public BaseIO
     BaseParticles &base_particles_; // 该物体的粒子
     std::string output_folder_;     // 输出文件将被写入的文件夹
 };
-
-
-
-
-
-
-
-

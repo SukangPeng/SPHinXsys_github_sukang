@@ -18,21 +18,20 @@ constexpr Real PI = 3.14159265358979323846;
 //----------------------------------------------------------------------
 //	Set the file path to the data file
 //----------------------------------------------------------------------
-std::string stent_path = "./input/stent_test.stl";
-//std::string stent_path = "./input/Stent.stl";
-//std::string vessel_wall_path = "./input/vessel_wall.stl";
+std::string stent_path = "./input/stent_2mm.stl";
+std::string vessel_wall_path = "./input/vessel_wall_narrow1.stl";
 //----------------------------------------------------------------------
 //	Basic geometry parameters
 //----------------------------------------------------------------------
-Vec3d translation_vessel_wall(0.0, 0.0, 0.0); /**< 血管壁的初始平移，单位：m (米) */
-Vec3d translation_stent(0.0, 0.0, 0.0);      /**< 支架的初始平移，单位：m (米) */
-Real length_scale_stent = 1e-3;                 /**< 长度比例因子，无量纲 (无单位) */
-Real length_scale = 1.0;                        /**< 长度比例因子，无量纲 (无单位) */
-Real resolution_ref = 0.3 * length_scale_stent; /**< 初始参考粒子间距，单位：m (米) */
+Vec3d translation_vessel_wall(0.0, 0.0, 0.0);               /**< 血管壁的初始平移，单位：m (米) */
+Vec3d translation_stent(0.0125, 0.0, 0.0000022705);         /**< 支架的初始平移，单位：m (米) */
+Real length_scale_stent = 1e-3;                             /**< 长度比例因子，无量纲 (无单位) */
+Real length_scale = 1.0;                                    /**< 长度比例因子，无量纲 (无单位) */
+Real resolution_ref = 0.2 * length_scale_stent;            /**< 初始参考粒子间距，单位：m (米) */
 // resolution_ref = 0.0003;                                            /**< 初始参考粒子间距，单位：m (米) */
 Real diameter = 0.004;                                                    /**< 血管外径，单位：m (米) */
-Vec3d domain_lower_bound(-0.006, -0.002, -0.002);                         /**< 系统域的下边界，单位：m (米) */
-Vec3d domain_upper_bound(0.006, 0.002, 0.002);                            /**< 系统域的上边界，单位：m (米) */
+Vec3d domain_lower_bound(-0.001, -0.004, -0.004);                         /**< 系统域的下边界，单位：m (米) */
+Vec3d domain_upper_bound(0.03, 0.004, 0.004);                             /**< 系统域的上边界，单位：m (米) */
 BoundingBox system_domain_bounds(domain_lower_bound, domain_upper_bound); /**< 系统域的边界框，单位：m (米) */
 Real full_length = 0.025;
 //----------------------------------------------------------------------
@@ -41,16 +40,16 @@ Real full_length = 0.025;
 /*Vessel Material*/
 Real rho0_s_vessel = 1265;              /**< 血管壁的密度，单位：kg/m³ (千克每立方米) */
 Real poisson_vessel = 0.45;             /**< 血管壁的泊松比，无量纲 (无单位) */
-Real Youngs_modulus_vessel = 1e5;     /**< 血管壁的杨氏模量，单位：Pa (帕) */
+Real Youngs_modulus_vessel = 1e5;       /**< 血管壁的杨氏模量，单位：Pa (帕) */
 Real physical_viscosity_vessel = 200.0; /**< 血管壁的物理粘度，单位：Pa·s (帕·秒) */
 //----------------------------------------------------------------------
 //	Global parameters for stent (血管壁参数)
 //----------------------------------------------------------------------
 /* Stent Material */
-Real rho0_s_stent = 6450.0;            /**< 支架的密度，单位：kg/m³ (千克每立方米) */
-Real poisson_stent = 0.33;             /**< 支架的泊松比，无量纲 (无单位) */
-Real youngs_modulus_stent = 1e6;       /**< 支架的杨氏模量，单位：Pa (帕) */
-Real physical_viscosity_stent = 100.0; /**< 支架的物理粘度，单位：Pa·s (帕·秒) */
+Real rho0_s_stent = 6450.0;             /**< 支架的密度，单位：kg/m³ (千克每立方米) */
+Real poisson_stent = 0.33;              /**< 支架的泊松比，无量纲 (无单位) */
+Real youngs_modulus_stent = 1e8;        /**< 支架的杨氏模量，单位：Pa (帕) */
+Real physical_viscosity_stent = 1000.0; /**< 支架的物理粘度，单位：Pa·s (帕·秒) */
 //----------------------------------------------------------------------
 //	Define SPH bodies.
 //----------------------------------------------------------------------
@@ -60,6 +59,15 @@ class Stent : public ComplexShape
     explicit Stent(const std::string &shape_name) : ComplexShape(shape_name)
     {
         add<TriangleMeshShapeSTL>(stent_path, translation_stent, length_scale_stent);
+    }
+};
+
+class VesselWall : public ComplexShape
+{
+  public:
+    explicit VesselWall(const std::string &shape_name) : ComplexShape(shape_name)
+    {
+        add<TriangleMeshShapeSTL>(vessel_wall_path, translation_vessel_wall, length_scale);
     }
 };
 //----------------------------------------------------------------------
@@ -87,7 +95,6 @@ class BoundaryGeometry : public BodyPartByParticle
         }
     };
 };
-
 
 //----------------------------------------------------------------------
 //	RadialForce.
@@ -168,7 +175,6 @@ class IncreaseToFullRadialForce : public RadialForce
         return time_factor < 1.0 ? time_factor * full_acceleration : full_acceleration;
     }
 };
-
 
 //----------------------------------------------------------------------
 //  RadialForceApplication.
@@ -266,7 +272,6 @@ void printBoundingBoxAndDelta(const BoundingBox &bbox)
     std::cout << lower_bound[1] << " to " << upper_bound[1] << " (delta: " << delta[1] << ")\n";
     std::cout << lower_bound[2] << " to " << upper_bound[2] << " (delta: " << delta[2] << ")\n";
 }
-
 
 //----------------------------------------------------------------------
 //	ReloadParticleRecordingToXml

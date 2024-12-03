@@ -18,8 +18,8 @@ constexpr Real PI = 3.14159265358979323846;
 //----------------------------------------------------------------------
 //	Set the file path to the data file
 //----------------------------------------------------------------------
-std::string vessel_wall = "./input/vessel_wall.stl";
-std::string vessel_fluid = "./input/vessel_fluid.stl";
+std::string vessel_wall = "./input/vessel_wall_narrow.stl";
+std::string vessel_fluid = "./input/vessel_fluid_narrow.stl";
 //----------------------------------------------------------------------
 //	Basic geometry parameters
 //----------------------------------------------------------------------

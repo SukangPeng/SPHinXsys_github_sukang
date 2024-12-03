@@ -18,17 +18,17 @@ constexpr Real PI = 3.14159265358979323846;
 //----------------------------------------------------------------------
 //	Set the file path to the data file
 //----------------------------------------------------------------------
-std::string stent_path = "./input/stent_test.stl";
+std::string stent_path = "./input/stent_test_mm.stl";
 //std::string stent_path = "./input/Stent.stl";
 std::string vessel_wall_path = "./input/vessel_wall.stl";
 //----------------------------------------------------------------------
 //	Basic geometry parameters
 //----------------------------------------------------------------------
 Vec3d translation_vessel_wall(0.0, 0.0, 0.0); /**< 血管壁的初始平移，单位：m (米) */
-Vec3d translation_stent(0.0125, 0.0, 0.0);      /**< 支架的初始平移，单位：m (米) */
-Real length_scale_stent = 1e-3;                 /**< 长度比例因子，无量纲 (无单位) */
+Vec3d translation_stent(0.0125, 0.000009915, 0.0000103625); /**< 支架的初始平移，单位：m (米) */
+Real length_scale_stent = 1e-3;                           /**< 长度比例因子，无量纲 (无单位) */
 Real length_scale = 1.0;                        /**< 长度比例因子，无量纲 (无单位) */
-Real resolution_ref = 0.3 * length_scale_stent; /**< 初始参考粒子间距，单位：m (米) */
+Real resolution_ref = 0.25 * length_scale_stent; /**< 初始参考粒子间距，单位：m (米) */
 // resolution_ref = 0.0003;                                            /**< 初始参考粒子间距，单位：m (米) */
 Real diameter = 0.004;                                                    /**< 血管外径，单位：m (米) */
 Vec3d domain_lower_bound(-0.001, -0.004, -0.004);                         /**< 系统域的下边界，单位：m (米) */

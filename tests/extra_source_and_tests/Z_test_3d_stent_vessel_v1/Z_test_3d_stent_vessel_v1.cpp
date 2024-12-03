@@ -18,10 +18,10 @@ int main(int ac, char *av[])
     //	Build up the environment of a SPHSystem with global controls.
     //----------------------------------------------------------------------
     SPHSystem sph_system(system_domain_bounds, resolution_ref);
-    //sph_system.setRunParticleRelaxation(true); // Tag for run particle relaxation for body-fitted distribution
-    //sph_system.setReloadParticles(false);      // Tag for computation with save particles distribution
-    sph_system.setRunParticleRelaxation(false); // Tag for run particle relaxation for body-fitted distribution
-    sph_system.setReloadParticles(true);        // Tag for computation with save particles distribution
+    sph_system.setRunParticleRelaxation(true); // Tag for run particle relaxation for body-fitted distribution
+    sph_system.setReloadParticles(false);      // Tag for computation with save particles distribution
+    //sph_system.setRunParticleRelaxation(false); // Tag for run particle relaxation for body-fitted distribution
+    //sph_system.setReloadParticles(true);        // Tag for computation with save particles distribution
 #ifdef BOOST_AVAILABLE
     sph_system.handleCommandlineOptions(ac, av)->setIOEnvironment();
 #endif
@@ -29,7 +29,7 @@ int main(int ac, char *av[])
     //	Creating body, materials and particles.
     //----------------------------------------------------------------------
     SolidBody stent_body(sph_system, makeShared<Stent>("Stent"));
-    stent_body.defineAdaptationRatios(1.15, 5.0);
+    stent_body.defineAdaptationRatios(1.15, 4.0);
     stent_body.defineBodyLevelSetShape()->correctLevelSetSign()->writeLevelSet(sph_system);
     stent_body.defineMaterial<NeoHookeanSolid>(rho0_s_stent, youngs_modulus_stent, poisson_stent);
     (!sph_system.RunParticleRelaxation() && sph_system.ReloadParticles())
@@ -114,7 +114,7 @@ int main(int ac, char *av[])
     InnerRelation stent_inner(stent_body);
     InnerRelation vessel_inner(vessel_wall);
     SurfaceContactRelation stent_vessel_contact(stent_body, {&vessel_wall});
-    SurfaceContactRelation vessel_stent_contact(vessel_wall, {&stent_body}); 
+    SurfaceContactRelation vessel_stent_contact(vessel_wall, {&stent_body});
     //----------------------------------------------------------------------
     //	Define the numerical methods used in the simulation.
     //	Note that there may be data dependence on the sequence of constructions.
@@ -124,7 +124,7 @@ int main(int ac, char *av[])
     SimpleDynamics<RadialForceApplication<RadialForce>> apply_radial_force(stent_body, radial_force);
 
     InteractionWithUpdate<LinearGradientCorrectionMatrixInner> corrected_configuration_stent(stent_inner);
-    InteractionWithUpdate<LinearGradientCorrectionMatrixInner> corrected_configuration_vessel(vessel_inner); 
+    InteractionWithUpdate<LinearGradientCorrectionMatrixInner> corrected_configuration_vessel(vessel_inner);
     /** active and passive stress relaxation. */
     Dynamics1Level<solid_dynamics::DecomposedIntegration1stHalf> stress_relaxation_first_half_stent(stent_inner);
     Dynamics1Level<solid_dynamics::Integration2ndHalf> stress_relaxation_second_half_stent(stent_inner);
@@ -142,7 +142,7 @@ int main(int ac, char *av[])
     SimpleDynamics<solid_dynamics::ConstrainSolidBodyMassCenter> constrain_mass_center_stent(stent_body);
     /** Damping with the solid body*/
     DampingWithRandomChoice<InteractionSplit<DampingPairwiseInner<Vec3d, FixedDampingRate>>> stent_damping(1.0, stent_inner, "Velocity", physical_viscosity_stent);
-    //DampingWithRandomChoice<InteractionSplit<DampingPairwiseInner<Vec3d, FixedDampingRate>>> vessel_damping(1.0, vessel_inner, "Velocity", physical_viscosity_vessel);
+    // DampingWithRandomChoice<InteractionSplit<DampingPairwiseInner<Vec3d, FixedDampingRate>>> vessel_damping(1.0, vessel_inner, "Velocity", physical_viscosity_vessel);
     //----------------------------------------------------------------------
     //	Define the methods for I/O operations, observations
     //	and regression tests of the simulation.
@@ -213,11 +213,11 @@ int main(int ac, char *av[])
             constrain_mass_center_stent.exec(dt);
             stent_damping.exec(dt);
             constrain_mass_center_stent.exec(dt);
-            stress_relaxation_first_half_stent.exec(dt);
+            stress_relaxation_second_half_stent.exec(dt);
 
             stress_relaxation_first_half_vessel.exec(dt);
             constrain_holder.exec(dt);
-            //vessel_damping.exec(dt);
+            // vessel_damping.exec(dt);
             constrain_holder.exec(dt);
             stress_relaxation_second_half_vessel.exec(dt);
 
@@ -248,16 +248,17 @@ int main(int ac, char *av[])
                 // 设置标志位以提前结束模拟
                 stop_simulation = true;
                 write_states.writeToFile();
+                write_particle_state.writeToFile(ite);
+
                 break;
             }
         }
         TickCount t2 = TickCount::now();
-        //write_states.writeToFile();
+        // write_states.writeToFile();
         TickCount t3 = TickCount::now();
         interval += t3 - t2;
     }
     TickCount t4 = TickCount::now();
-
     TimeInterval tt;
     tt = t4 - t1 - interval;
     std::cout << "Total wall time for computation: " << tt.seconds() << " seconds." << std::endl;
@@ -271,6 +272,5 @@ int main(int ac, char *av[])
     {
         write_stent_kinetic_energy.testResult();
     }
-
     return 0;
 }

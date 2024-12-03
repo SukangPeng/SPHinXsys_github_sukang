@@ -6,7 +6,7 @@
  * @author 	Sukang Peng
  */
 
-#include "Z_test_3d_stent_vessel_v3.h"
+#include "Z_test_3d_stent_vessel_S_v4.h"
 #include "sphinxsys.h"
 using namespace SPH; 
 //----------------------------------------------------------------------
