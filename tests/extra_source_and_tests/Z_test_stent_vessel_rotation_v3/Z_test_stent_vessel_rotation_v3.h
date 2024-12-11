@@ -48,7 +48,7 @@ Real physical_viscosity_vessel = 20.0; /**< 血管壁的物理粘度，单位：
 /* Stent Material */
 Real rho0_s_stent = 6450.0;             /**< 支架的密度，单位：kg/m³ (千克每立方米) */
 Real poisson_stent = 0.33;              /**< 支架的泊松比，无量纲 (无单位) */
-Real youngs_modulus_stent = 1e7;        /**< 支架的杨氏模量，单位：Pa (帕) */
+Real youngs_modulus_stent = 2e6;        /**< 支架的杨氏模量，单位：Pa (帕) */
 Real physical_viscosity_stent = 1000.0; /**< 支架的物理粘度，单位：Pa·s (帕·秒) */
 //----------------------------------------------------------------------
 //	Define SPH bodies.
@@ -433,4 +433,209 @@ class ReloadParticleRecordingToXml : public BaseIO
     SPHBody &sph_body_;             // 我们正在写入粒子状态的 SPHBody
     BaseParticles &base_particles_; // 该物体的粒子
     std::string output_folder_;     // 输出文件将被写入的文件夹
+};
+
+//----------------------------------------------------------------------
+//	Define constrain class for stent translation and rotation.
+//----------------------------------------------------------------------
+/**
+ * @class QuantityMassPosition
+ * @brief Compute the mass-weighted position of a body
+ */
+template <typename DynamicsIdentifier = SPHBody>
+class QuantityMassPosition : public QuantitySummation<Vecd, DynamicsIdentifier>
+{
+  protected:
+    Real *mass_; // 指向粒子的质量数据
+
+  public:
+    explicit QuantityMassPosition(DynamicsIdentifier &identifier)
+        : QuantitySummation<Vecd, DynamicsIdentifier>(identifier, "Position"),
+          mass_(this->particles_->template getVariableDataByName<Real>("Mass"))
+    {
+        this->quantity_name_ = "MassWeightedPosition";
+    };
+    virtual ~QuantityMassPosition() {}
+
+    // 重写 reduce 方法，用于计算质量加权的位置
+    Vecd reduce(size_t index_i, Real dt = 0.0) 
+    {
+        // 获取粒子的位置和质量
+        Vecd position = this->variable_[index_i];
+        Real mass = mass_[index_i];
+
+        // 计算质量加权的位置
+        return position * mass;
+    }
+};
+
+Vecd computeAveragePosition(SolidBody &stent_body)
+{
+    // 获取 stent_body 的 BaseParticles 实例
+    BaseParticles &particles = stent_body.getBaseParticles();
+
+    // 获取粒子总数
+    size_t total_particles = particles.TotalRealParticles();
+
+    // 如果没有粒子，返回零向量
+    if (total_particles == 0)
+    {
+        return Vecd::Zero();
+    }
+
+    // 获取粒子的位置向量数组
+    Vecd *positions = particles.ParticlePositions();
+
+    // 初始化总位置
+    Vecd total_position = Vecd::Zero();
+
+    // 遍历所有粒子并累加位置
+    for (size_t i = 0; i < total_particles; ++i)
+    {
+        total_position += positions[i];
+    }
+
+    // 计算平均位置
+    return total_position / static_cast<Real>(total_particles);
+}
+
+/**
+ * @class QuantityMomentOfInertia
+ * @brief Compute the moment of inertia of a body
+ */
+template <typename DynamicsIdentifier = SPHBody>
+class QuantityMomentOfInertia : public QuantitySummation<Real, DynamicsIdentifier>
+{
+  protected:
+    Vecd mass_center_; // 质心位置
+    size_t p_1_, p_2_; // 惯性矩分量的索引
+    Vecd *positions_;  // 粒子的位置数据
+
+  public:
+    explicit QuantityMomentOfInertia(DynamicsIdentifier &identifier, Vecd mass_center, size_t p_1, size_t p_2)
+        : QuantitySummation<Real, DynamicsIdentifier>(identifier, "Mass"),
+          mass_center_(mass_center), p_1_(p_1), p_2_(p_2),
+          positions_(this->particles_->template getVariableDataByName<Vecd>("Position"))
+    {
+        this->quantity_name_ = "MomentOfInertia";
+
+        // 检查 positions_ 是否初始化成功
+        if (!positions_)
+        {
+            throw std::runtime_error("Error: Unable to initialize positions_. Check if 'Position' variable exists.");
+        }
+    }
+
+    virtual ~QuantityMomentOfInertia() {}
+
+    // 重写 reduce 方法，用于计算惯性矩分量
+    Real reduce(size_t index_i, Real dt = 0.0) 
+    {
+        Vecd relative_position = positions_[index_i] - mass_center_; // 访问粒子位置
+        Real mass = this->variable_[index_i];                        // 获取粒子质量
+
+        if (p_1_ == p_2_)
+        {
+            // 对角项惯性矩分量
+            return mass * (relative_position.squaredNorm() - relative_position[p_1_] * relative_position[p_1_]);
+        }
+        else
+        {
+            // 非对角项惯性矩分量
+            return -mass * relative_position[p_1_] * relative_position[p_2_];
+        }
+    }
+};
+
+/**
+ * @class QuantityMomentOfMomentum
+ * @brief Computes the moment of momentum (angular momentum) for a given SPHBody.
+ */
+class QuantityMomentOfMomentum : public QuantitySummation<Vecd, SPHBody>
+{
+  protected:
+    Vecd *positions_;  // Pointer to particle positions
+    Vecd *velocities_; // Pointer to particle velocities
+    Real *masses_;     // Pointer to particle masses
+    Vecd mass_center_; // Center of mass of the body
+
+  public:
+    /**
+     * @brief Constructor for QuantityMomentOfMomentum
+     * @param sph_body The SPHBody to compute the moment of momentum for.
+     * @param mass_center The center of mass of the body.
+     */
+    explicit QuantityMomentOfMomentum(SPHBody &sph_body, Vecd mass_center)
+        : QuantitySummation<Vecd, SPHBody>(sph_body, "Velocity"),
+          positions_(sph_body.getBaseParticles().getVariableDataByName<Vecd>("Position")),
+          velocities_(sph_body.getBaseParticles().getVariableDataByName<Vecd>("Velocity")),
+          masses_(sph_body.getBaseParticles().getVariableDataByName<Real>("Mass")),
+          mass_center_(mass_center)
+    {
+        this->quantity_name_ = "MomentOfMomentum";
+    }
+
+    /**
+     * @brief Compute the contribution to the moment of momentum for a single particle.
+     * @param index_i Index of the particle.
+     * @param dt Time step size (not used in this calculation).
+     * @return The moment of momentum contribution of the particle.
+     */
+    Vecd reduce(size_t index_i, Real dt = 0.0) 
+    {
+        Vecd relative_position = positions_[index_i] - mass_center_;
+        return masses_[index_i] * relative_position.cross(velocities_[index_i]);
+    }
+};
+
+/**
+ * @class Constrain3DSolidBodyTranslation
+ * @brief Constrain the translation of a 3D solid body.
+ */
+class Constrain3DSolidBodyRotation : public LocalDynamics
+{
+  private:
+    Vecd mass_center_;                                                          // 物体的质心
+    Matd moment_of_inertia_;                                                    // 惯性张量
+    Vecd angular_velocity_;                                                     // 当前角速度
+    ReduceDynamics<QuantityMomentOfMomentum> compute_total_moment_of_momentum_; // 计算总角动量
+    Vecd *positions_;                                                           // 粒子的位置数组
+    Vecd *velocities_;                                                          // 粒子速度数组
+
+  protected:
+    // 在每个时间步开始时，计算角速度
+    virtual void setupDynamics(Real dt = 0.0) override
+    {
+        angular_velocity_ = moment_of_inertia_.inverse() * compute_total_moment_of_momentum_.exec(dt);
+    }
+
+  public:
+    // 构造函数，初始化变量
+    explicit Constrain3DSolidBodyRotation(SPHBody &sph_body, const Vecd &mass_center, const Matd &inertia_tensor)
+        : LocalDynamics(sph_body),
+          mass_center_(mass_center),
+          moment_of_inertia_(inertia_tensor),
+          compute_total_moment_of_momentum_(sph_body, mass_center)
+    {
+        // 获取粒子数据
+        BaseParticles &particles = sph_body.getBaseParticles();
+        positions_ = particles.getVariableDataByName<Vecd>("Position");
+        velocities_ = particles.getVariableDataByName<Vecd>("Velocity");
+
+        // 检查是否正确初始化变量
+        if (!positions_ || !velocities_)
+        {
+            throw std::runtime_error("Error: Unable to initialize 'Position' or 'Velocity' variable. Check if they are registered.");
+        }
+    }
+
+    virtual ~Constrain3DSolidBodyRotation() {}
+
+    // 对每个粒子，更新速度以阻止旋转
+    void update(size_t index_i, Real dt = 0.0) 
+    {
+        Vecd relative_position = positions_[index_i] - mass_center_;                       // 计算相对质心的位置
+        Vecd linear_velocity_due_to_rotation = angular_velocity_.cross(relative_position); // 计算线速度
+        velocities_[index_i] -= linear_velocity_due_to_rotation;                           // 调整速度以去除旋转分量
+    }
 };

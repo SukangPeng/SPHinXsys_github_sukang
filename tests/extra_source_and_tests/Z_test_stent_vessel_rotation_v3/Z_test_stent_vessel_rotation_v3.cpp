@@ -6,7 +6,7 @@
  * @author 	Sukang Peng
  */
 
-#include "Z_test_stent_vessel_v2.h"
+#include "Z_test_stent_vessel_rotation_v3.h"
 #include "sphinxsys.h"
 using namespace SPH;
 //----------------------------------------------------------------------
@@ -18,10 +18,10 @@ int main(int ac, char *av[])
     //	Build up the environment of a SPHSystem with global controls.
     //----------------------------------------------------------------------
     SPHSystem sph_system(system_domain_bounds, resolution_ref);
-     //sph_system.setRunParticleRelaxation(true); // Tag for run particle relaxation for body-fitted distribution
-     //sph_system.setReloadParticles(false);      // Tag for computation with save particles distribution
-    sph_system.setRunParticleRelaxation(false); // Tag for run particle relaxation for body-fitted distribution
-    sph_system.setReloadParticles(true);        // Tag for computation with save particles distribution
+     sph_system.setRunParticleRelaxation(true); // Tag for run particle relaxation for body-fitted distribution
+     sph_system.setReloadParticles(false);      // Tag for computation with save particles distribution
+    //sph_system.setRunParticleRelaxation(false); // Tag for run particle relaxation for body-fitted distribution
+    //sph_system.setReloadParticles(true);        // Tag for computation with save particles distribution
 #ifdef BOOST_AVAILABLE
     sph_system.handleCommandlineOptions(ac, av)->setIOEnvironment();
 #endif
@@ -30,6 +30,7 @@ int main(int ac, char *av[])
     //----------------------------------------------------------------------
     SolidBody stent_body(sph_system, makeShared<Stent>("Stent"));
     stent_body.defineAdaptationRatios(1.15, 5.5);
+
     stent_body.defineBodyLevelSetShape()->correctLevelSetSign()->writeLevelSet(sph_system);
     stent_body.defineMaterial<NeoHookeanSolid>(rho0_s_stent, youngs_modulus_stent, poisson_stent);
     (!sph_system.RunParticleRelaxation() && sph_system.ReloadParticles())
@@ -120,7 +121,7 @@ int main(int ac, char *av[])
     //	Note that there may be data dependence on the sequence of constructions.
     //----------------------------------------------------------------------
     // RadialForce radial_force(23000.0, xAxis);
-    StartupRadialForce radial_force(150000.0, xAxis, 0.18);
+    StartupRadialForce radial_force(50000.0, xAxis, 0.08);
     // 使用 SimpleDynamics 创建径向力应用对象
     // SimpleDynamics<RadialForceApplication<RadialForce>> apply_radial_force(stent_body, radial_force);
     SimpleDynamics<RadialForceApplication<StartupRadialForce>> apply_radial_force(stent_body, radial_force);
@@ -139,7 +140,7 @@ int main(int ac, char *av[])
     InteractionWithUpdate<solid_dynamics::ContactForce> vessel_compute_solid_contact_forces(vessel_stent_contact);
 
     /**Constrain  */
-    BoundaryGeometry boundary_geometry(vessel_wall, "BoundaryGeometry", resolution_ref * 20.0);
+    BoundaryGeometry boundary_geometry(vessel_wall, "BoundaryGeometry", resolution_ref * 15.0);
     SimpleDynamics<FixBodyPartConstraint> constrain_holder(boundary_geometry);
     SimpleDynamics<solid_dynamics::ConstrainSolidBodyMassCenter> constrain_mass_center_stent(stent_body);
     SimpleDynamics<solid_dynamics::ConstrainSolidBodyMassCenter> constrain_mass_center_vessel(vessel_wall);
@@ -147,6 +148,66 @@ int main(int ac, char *av[])
     /** Damping with the solid body*/
     DampingWithRandomChoice<InteractionSplit<DampingPairwiseInner<Vec3d, FixedDampingRate>>> stent_damping(1.0, stent_inner, "Velocity", physical_viscosity_stent);
     DampingWithRandomChoice<InteractionSplit<DampingPairwiseInner<Vec3d, FixedDampingRate>>> vessel_damping(1.0, vessel_inner, "Velocity", physical_viscosity_vessel);
+
+    ReduceDynamics<QuantitySummation<Real, SolidBody>> compute_total_mass_(stent_body, "Mass");
+    ReduceDynamics<QuantityMassPosition<SolidBody>> compute_mass_position_(stent_body);
+    Vecd mass_center = compute_mass_position_.exec() / compute_total_mass_.exec();
+    Matd moment_of_inertia = Matd::Zero();
+
+    // 计算惯性矩
+    for (int i = 0; i != Dimensions; ++i)
+    {
+        for (int j = 0; j != Dimensions; ++j)
+        {
+            ReduceDynamics<QuantityMomentOfInertia<SolidBody>> compute_moment_of_inertia(stent_body, mass_center, i, j);
+            moment_of_inertia(i, j) = compute_moment_of_inertia.exec();
+        }
+    }
+
+    SimpleDynamics<Constrain3DSolidBodyRotation> constrain_rotation(stent_body, mass_center, moment_of_inertia);
+
+    //    try
+    //{
+    //    // 计算总质量
+    //    Real total_mass = compute_total_mass_.exec();
+    //    std::cout << "Total mass of the stent: " << std::fixed << std::setprecision(12) << total_mass << " kg" << std::endl;
+
+    //    // 计算质量加权的位置
+    //    Vecd mass_weighted_position = compute_mass_position_.exec();
+    //    std::cout << "Mass-weighted position of the stent: ("
+    //              << mass_weighted_position[0] << ", "
+    //              << mass_weighted_position[1] << ", "
+    //              << mass_weighted_position[2] << ")" << std::endl;
+
+    //    // 计算质心位置
+    //    Vecd mass_center = mass_weighted_position / total_mass;
+    //    std::cout << "Mass center of the stent: ("
+    //              << mass_center[0] << ", "
+    //              << mass_center[1] << ", "
+    //              << mass_center[2] << ")" << std::endl;
+
+    //    // 计算平均位置
+    //    Vecd average_position = computeAveragePosition(stent_body);
+
+    //    // 打印结果
+    //    std::cout << "Average Position of Stent: ("
+    //              << average_position[0] << ", "
+    //              << average_position[1] << ", "
+    //              << average_position[2] << ")" << std::endl;
+    //}
+    //catch (const std::exception &e)
+    //{
+    //    std::cerr << "Error during computation: " << e.what() << std::endl;
+    //}
+
+    ////----------------------------------------------------------------------
+    ////  Prevent the console window from closing immediately
+    ////----------------------------------------------------------------------
+    //std::cout << "\nPress Enter to exit the program..." << std::endl;
+    //std::cin.get(); // 等待用户按下回车键
+
+    /** Update normal direction. */
+    //SimpleDynamics<solid_dynamics::UpdateElasticNormalDirection> stent_update_normal_direction(stent_body);
     //----------------------------------------------------------------------
     //	Define the methods for I/O operations, observations
     //	and regression tests of the simulation.
@@ -225,9 +286,17 @@ int main(int ac, char *av[])
 
             /** Stress relaxation and damping. */
             stress_relaxation_first_half_stent.exec(dt);
+
+            constrain_rotation.exec(dt);
+
             constrain_mass_center_stent.exec(dt);
+
             stent_damping.exec(dt);
+
+            constrain_rotation.exec(dt);
+
             constrain_mass_center_stent.exec(dt);
+
             stress_relaxation_second_half_stent.exec(dt);
 
             stress_relaxation_first_half_vessel.exec(dt);
@@ -293,5 +362,6 @@ int main(int ac, char *av[])
     {
         write_stent_kinetic_energy.testResult();
     }
+
     return 0;
 }

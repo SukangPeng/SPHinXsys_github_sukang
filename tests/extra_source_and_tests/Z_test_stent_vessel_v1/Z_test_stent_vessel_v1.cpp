@@ -120,7 +120,7 @@ int main(int ac, char *av[])
     //	Note that there may be data dependence on the sequence of constructions.
     //----------------------------------------------------------------------
     // RadialForce radial_force(23000.0, xAxis);
-    StartupRadialForce radial_force(50000.0, xAxis, 0.05);
+    StartupRadialForce radial_force(65000.0, xAxis, 0.08);
     // 使用 SimpleDynamics 创建径向力应用对象
     // SimpleDynamics<RadialForceApplication<RadialForce>> apply_radial_force(stent_body, radial_force);
     SimpleDynamics<RadialForceApplication<StartupRadialForce>> apply_radial_force(stent_body, radial_force);
@@ -249,9 +249,9 @@ int main(int ac, char *av[])
             stent_vessel_contact.updateConfiguration();
             vessel_stent_contact.updateConfiguration();
 
-            vessel_stress.exec(dt);
-            stent_stress.exec(dt);
-            write_states.writeToFile();
+            //vessel_stress.exec(dt);
+            //stent_stress.exec(dt);
+            //write_states.writeToFile();
 
             // 计算当前的边界框
             BoundingBox current_bbox1 = getRealTimeBoundingBox(stent_body.getBaseParticles());
@@ -265,20 +265,23 @@ int main(int ac, char *av[])
                 printBoundingBoxAndDelta(aligned_bbox1);
                 // 设置标志位以提前结束模拟
                 stop_simulation = true;
-                write_states.writeToFile();
-                write_particle_state.writeToFile(ite);
+                //write_states.writeToFile();
+                //write_particle_state.writeToFile(ite);
 
                 break;
             }
         }
         TickCount t2 = TickCount::now();
-        // write_states.writeToFile();
+        vessel_stress.exec(dt);
+        stent_stress.exec(dt);
+        write_states.writeToFile();
         TickCount t3 = TickCount::now();
         interval += t3 - t2;
     }
     TickCount t4 = TickCount::now();
     TimeInterval tt;
     tt = t4 - t1 - interval;
+    write_particle_state.writeToFile(ite);
     std::cout << "Total wall time for computation: " << tt.seconds() << " seconds." << std::endl;
 
     // 回归测试数据
