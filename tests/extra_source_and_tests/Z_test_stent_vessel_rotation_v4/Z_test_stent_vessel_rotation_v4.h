@@ -40,7 +40,7 @@ Real full_length = 0.025;
 /*Vessel Material*/
 Real rho0_s_vessel = 1265;             /**< 血管壁的密度，单位：kg/m³ (千克每立方米) */
 Real poisson_vessel = 0.45;            /**< 血管壁的泊松比，无量纲 (无单位) */
-Real Youngs_modulus_vessel = 1e5;      /**< 血管壁的杨氏模量，单位：Pa (帕) */
+Real Youngs_modulus_vessel = 5e5;      /**< 血管壁的杨氏模量，单位：Pa (帕) */
 Real physical_viscosity_vessel = 20.0; /**< 血管壁的物理粘度，单位：Pa·s (帕·秒) */
 //----------------------------------------------------------------------
 //	Global parameters for stent (血管壁参数)
@@ -48,8 +48,8 @@ Real physical_viscosity_vessel = 20.0; /**< 血管壁的物理粘度，单位：
 /* Stent Material */
 Real rho0_s_stent = 6450.0;             /**< 支架的密度，单位：kg/m³ (千克每立方米) */
 Real poisson_stent = 0.33;              /**< 支架的泊松比，无量纲 (无单位) */
-Real youngs_modulus_stent = 1e6;        /**< 支架的杨氏模量，单位：Pa (帕) */
-Real physical_viscosity_stent = 1000.0; /**< 支架的物理粘度，单位：Pa·s (帕·秒) */
+Real youngs_modulus_stent = 5e7;        /**< 支架的杨氏模量，单位：Pa (帕) */
+Real physical_viscosity_stent = 50.0; /**< 支架的物理粘度，单位：Pa·s (帕·秒) */
 //----------------------------------------------------------------------
 //	Define SPH bodies.
 //----------------------------------------------------------------------

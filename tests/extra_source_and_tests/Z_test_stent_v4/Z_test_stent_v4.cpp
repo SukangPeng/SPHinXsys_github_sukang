@@ -6,9 +6,9 @@
  * @author 	Sukang Peng
  */
 
-#include "Z_test_stent_vessel_rotation_v3.h"
+#include "Z_test_stent_v4.h"
 #include "sphinxsys.h"
-using namespace SPH;
+using namespace SPH; 
 //----------------------------------------------------------------------
 //	Main program starts here.
 //----------------------------------------------------------------------
@@ -18,10 +18,10 @@ int main(int ac, char *av[])
     //	Build up the environment of a SPHSystem with global controls.
     //----------------------------------------------------------------------
     SPHSystem sph_system(system_domain_bounds, resolution_ref);
-     sph_system.setRunParticleRelaxation(true); // Tag for run particle relaxation for body-fitted distribution
-     sph_system.setReloadParticles(false);      // Tag for computation with save particles distribution
-    //sph_system.setRunParticleRelaxation(false); // Tag for run particle relaxation for body-fitted distribution
-    //sph_system.setReloadParticles(true);        // Tag for computation with save particles distribution
+    //sph_system.setRunParticleRelaxation(true); // Tag for run particle relaxation for body-fitted distribution
+    //sph_system.setReloadParticles(false);      // Tag for computation with save particles distribution
+    sph_system.setRunParticleRelaxation(false); // Tag for run particle relaxation for body-fitted distribution
+    sph_system.setReloadParticles(true);        // Tag for computation with save particles distribution
 #ifdef BOOST_AVAILABLE
     sph_system.handleCommandlineOptions(ac, av)->setIOEnvironment();
 #endif
@@ -29,8 +29,7 @@ int main(int ac, char *av[])
     //	Creating body, materials and particles.
     //----------------------------------------------------------------------
     SolidBody stent_body(sph_system, makeShared<Stent>("Stent"));
-    stent_body.defineAdaptationRatios(1.15, 6.5);
-
+    stent_body.defineAdaptationRatios(1.15, 7.0);
     stent_body.defineBodyLevelSetShape()->correctLevelSetSign()->writeLevelSet(sph_system);
     stent_body.defineMaterial<NeoHookeanSolid>(rho0_s_stent, youngs_modulus_stent, poisson_stent);
     (!sph_system.RunParticleRelaxation() && sph_system.ReloadParticles())
@@ -59,16 +58,16 @@ int main(int ac, char *av[])
         //----------------------------------------------------------------------
         //	Define body relation map used for particle relaxation.
         //----------------------------------------------------------------------
-        InnerRelation wall_inner(vessel_wall);
-        InnerRelation stent_inner(stent_body);
+        InnerRelation wall_relax_inner(vessel_wall);
+        InnerRelation stent_relax_inner(stent_body);
         //----------------------------------------------------------------------
         //	Methods used for particle relaxation.
         //----------------------------------------------------------------------
         using namespace relax_dynamics;
         SimpleDynamics<RandomizeParticlePosition> random_vessel_wall_particles(vessel_wall);
         SimpleDynamics<RandomizeParticlePosition> random_stent_particles(stent_body);
-        RelaxationStepInner relaxation_step_wall_inner(wall_inner);
-        RelaxationStepInner relaxation_step_stent_inner(stent_inner);
+        RelaxationStepLevelSetCorrectionInner relaxation_step_wall_inner(wall_relax_inner);
+        RelaxationStepLevelSetCorrectionInner relaxation_step_stent_inner(stent_relax_inner);
         /** Write the body state to Vtp file. */
         BodyStatesRecordingToVtp write_wall_state_to_vtp(vessel_wall);
         BodyStatesRecordingToVtp write_stent_state_to_vtp(stent_body);
@@ -121,7 +120,7 @@ int main(int ac, char *av[])
     //	Note that there may be data dependence on the sequence of constructions.
     //----------------------------------------------------------------------
     // RadialForce radial_force(23000.0, xAxis);
-    StartupRadialForce radial_force(200000.0, xAxis, 0.01);
+    StartupRadialForce radial_force(10000000.0, xAxis, 0.01);
     // 使用 SimpleDynamics 创建径向力应用对象
     // SimpleDynamics<RadialForceApplication<RadialForce>> apply_radial_force(stent_body, radial_force);
     SimpleDynamics<RadialForceApplication<StartupRadialForce>> apply_radial_force(stent_body, radial_force);
@@ -291,6 +290,10 @@ int main(int ac, char *av[])
                 printBoundingBoxAndDelta(current_bbox);
                 printBoundingBoxAndDelta(aligned_bbox);
                 std::cout << "\n";
+
+                vessel_stress.exec(dt);
+                stent_stress.exec(dt);
+                write_states.writeToFile();
             }
 
             apply_radial_force.exec(dt);
@@ -303,22 +306,21 @@ int main(int ac, char *av[])
 
             /** Stress relaxation and damping. */
             stress_relaxation_first_half_stent.exec(dt);
-
-            constrain_rotation_stent.exec(dt);
-            constrain_mass_center_stent.exec(dt);
-            stent_damping.exec(dt);
-            constrain_rotation_stent.exec(dt);
-            constrain_mass_center_stent.exec(dt);
+            //constrain_rotation_stent.exec(dt);
+            //constrain_mass_center_stent.exec(dt);
+            //stent_damping.exec(dt);
+            //constrain_rotation_stent.exec(dt);
+            //constrain_mass_center_stent.exec(dt);
             stress_relaxation_second_half_stent.exec(dt);
 
             stress_relaxation_first_half_vessel.exec(dt);
             // constrain_holder.exec(dt);
-            constrain_rotation_vessel.exec(dt);
+            //constrain_rotation_vessel.exec(dt);
             constrain_mass_center_vessel.exec(dt);
             // vessel_damping.exec(dt);
-            // constrain_rotation_vessel.exec(dt);
-            constrain_mass_center_vessel.exec(dt);
-            // constrain_holder.exec(dt);
+            //constrain_rotation_vessel.exec(dt);
+            //constrain_mass_center_vessel.exec(dt);
+            //constrain_holder.exec(dt);
             stress_relaxation_second_half_vessel.exec(dt);
 
             ite++;
@@ -342,14 +344,13 @@ int main(int ac, char *av[])
             Vec3d delta = aligned_bbox1.second_ - aligned_bbox1.first_;
 
             // 检查 delta 是否已经达到阈值
-            if (delta[1] >= 0.0036 && delta[2] >= 0.0036)
+            if (delta[1] >= 0.0035 || delta[2] >= 0.0035)
             {
                 std::cout << "Delta reached 4 mm in Z or Y direction, stopping force application.\n";
                 printBoundingBoxAndDelta(aligned_bbox1);
                 // 设置标志位以提前结束模拟
                 stop_simulation = true;
                 // write_states.writeToFile();
-                // write_particle_state.writeToFile(ite);
 
                 break;
             }

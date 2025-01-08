@@ -18,10 +18,10 @@ int main(int ac, char *av[])
     //	Build up the environment of a SPHSystem with global controls.
     //----------------------------------------------------------------------
     SPHSystem sph_system(system_domain_bounds, resolution_ref);
-     sph_system.setRunParticleRelaxation(true); // Tag for run particle relaxation for body-fitted distribution
-     sph_system.setReloadParticles(false);      // Tag for computation with save particles distribution
-    //sph_system.setRunParticleRelaxation(false); // Tag for run particle relaxation for body-fitted distribution
-    //sph_system.setReloadParticles(true);        // Tag for computation with save particles distribution
+     //sph_system.setRunParticleRelaxation(true); // Tag for run particle relaxation for body-fitted distribution
+     //sph_system.setReloadParticles(false);      // Tag for computation with save particles distribution
+    sph_system.setRunParticleRelaxation(false); // Tag for run particle relaxation for body-fitted distribution
+    sph_system.setReloadParticles(true);        // Tag for computation with save particles distribution
 #ifdef BOOST_AVAILABLE
     sph_system.handleCommandlineOptions(ac, av)->setIOEnvironment();
 #endif
@@ -29,7 +29,7 @@ int main(int ac, char *av[])
     //	Creating body, materials and particles.
     //----------------------------------------------------------------------
     SolidBody stent_body(sph_system, makeShared<Stent>("Stent"));
-    stent_body.defineAdaptationRatios(1.15, 5.0);
+    stent_body.defineAdaptationRatios(1.15, 6.5);
 
     stent_body.defineBodyLevelSetShape()->correctLevelSetSign()->writeLevelSet(sph_system);
     stent_body.defineMaterial<NeoHookeanSolid>(rho0_s_stent, youngs_modulus_stent, poisson_stent);
@@ -67,7 +67,7 @@ int main(int ac, char *av[])
         using namespace relax_dynamics;
         SimpleDynamics<RandomizeParticlePosition> random_vessel_wall_particles(vessel_wall);
         SimpleDynamics<RandomizeParticlePosition> random_stent_particles(stent_body);
-        RelaxationStepInner relaxation_step_wall_inner(wall_inner);
+        RelaxationStepLevelSetCorrectionInner relaxation_step_wall_inner(wall_inner);
         RelaxationStepInner relaxation_step_stent_inner(stent_inner);
         /** Write the body state to Vtp file. */
         BodyStatesRecordingToVtp write_wall_state_to_vtp(vessel_wall);
@@ -121,7 +121,7 @@ int main(int ac, char *av[])
     //	Note that there may be data dependence on the sequence of constructions.
     //----------------------------------------------------------------------
     // RadialForce radial_force(23000.0, xAxis);
-    StartupRadialForce radial_force(50000.0, xAxis, 0.08);
+    StartupRadialForce radial_force(500000.0, xAxis, 0.005);
     // 使用 SimpleDynamics 创建径向力应用对象
     // SimpleDynamics<RadialForceApplication<RadialForce>> apply_radial_force(stent_body, radial_force);
     SimpleDynamics<RadialForceApplication<StartupRadialForce>> apply_radial_force(stent_body, radial_force);
@@ -140,7 +140,7 @@ int main(int ac, char *av[])
     InteractionWithUpdate<solid_dynamics::ContactForce> vessel_compute_solid_contact_forces(vessel_stent_contact);
 
     /**Constrain  */
-    BoundaryGeometry boundary_geometry(vessel_wall, "BoundaryGeometry", resolution_ref * 15.0);
+    BoundaryGeometry boundary_geometry(vessel_wall, "BoundaryGeometry", resolution_ref * 2.0);
     SimpleDynamics<FixBodyPartConstraint> constrain_holder(boundary_geometry);
     SimpleDynamics<solid_dynamics::ConstrainSolidBodyMassCenter> constrain_mass_center_stent(stent_body);
     SimpleDynamics<solid_dynamics::ConstrainSolidBodyMassCenter> constrain_mass_center_vessel(vessel_wall);
@@ -149,22 +149,41 @@ int main(int ac, char *av[])
     DampingWithRandomChoice<InteractionSplit<DampingPairwiseInner<Vec3d, FixedDampingRate>>> stent_damping(1.0, stent_inner, "Velocity", physical_viscosity_stent);
     DampingWithRandomChoice<InteractionSplit<DampingPairwiseInner<Vec3d, FixedDampingRate>>> vessel_damping(1.0, vessel_inner, "Velocity", physical_viscosity_vessel);
 
-    ReduceDynamics<QuantitySummation<Real, SolidBody>> compute_total_mass_(stent_body, "Mass");
-    ReduceDynamics<QuantityMassPosition<SolidBody>> compute_mass_position_(stent_body);
-    Vecd mass_center = compute_mass_position_.exec() / compute_total_mass_.exec();
-    Matd moment_of_inertia = Matd::Zero();
+    ReduceDynamics<QuantitySummation<Real, SolidBody>> compute_total_mass_stent(stent_body, "Mass");
+    ReduceDynamics<QuantityMassPosition<SolidBody>> compute_mass_position_stent(stent_body);
+    Vecd mass_center_stent = compute_mass_position_stent.exec() / compute_total_mass_stent.exec();
+    Matd moment_of_inertia_stent = Matd::Zero();
 
     // 计算惯性矩
     for (int i = 0; i != Dimensions; ++i)
     {
         for (int j = 0; j != Dimensions; ++j)
         {
-            ReduceDynamics<QuantityMomentOfInertia<SolidBody>> compute_moment_of_inertia(stent_body, mass_center, i, j);
-            moment_of_inertia(i, j) = compute_moment_of_inertia.exec();
+            ReduceDynamics<QuantityMomentOfInertia<SolidBody>> compute_moment_of_inertia_stent(stent_body, mass_center_stent, i, j);
+            moment_of_inertia_stent(i, j) = compute_moment_of_inertia_stent.exec();
         }
     }
 
-    SimpleDynamics<Constrain3DSolidBodyRotation> constrain_rotation(stent_body, mass_center, moment_of_inertia);
+    SimpleDynamics<Constrain3DSolidBodyRotation> constrain_rotation_stent(stent_body, mass_center_stent, moment_of_inertia_stent);
+
+
+    ReduceDynamics<QuantitySummation<Real, SolidBody>> compute_total_mass_vessel(vessel_wall, "Mass");
+    ReduceDynamics<QuantityMassPosition<SolidBody>> compute_mass_position_vessel(vessel_wall);
+    Vecd mass_center_vessel = compute_mass_position_vessel.exec() / compute_total_mass_vessel.exec();
+    Matd moment_of_inertia_vessel = Matd::Zero();
+
+    // 计算惯性矩
+    for (int i = 0; i != Dimensions; ++i)
+    {
+        for (int j = 0; j != Dimensions; ++j)
+        {
+            ReduceDynamics<QuantityMomentOfInertia<SolidBody>> compute_moment_of_inertia_vessel(vessel_wall, mass_center_vessel, i, j);
+            moment_of_inertia_vessel(i, j) = compute_moment_of_inertia_vessel.exec();
+        }
+    }
+
+    SimpleDynamics<Constrain3DSolidBodyRotation> constrain_rotation_vessel(vessel_wall, mass_center_vessel, moment_of_inertia_vessel);
+
 
     //    try
     //{
@@ -233,8 +252,8 @@ int main(int ac, char *av[])
     //----------------------------------------------------------------------
     Real &physical_time = *sph_system.getSystemVariableDataByName<Real>("PhysicalTime");
     int ite = 0.0;
-    Real end_time = 0.2;
-    Real output_period = end_time / 100.0;
+    Real end_time = 0.1;
+    Real output_period = end_time / 50.0;
     Real dt = 0.0;
     //----------------------------------------------------------------------
     //	Statistics for CPU time
@@ -274,6 +293,10 @@ int main(int ac, char *av[])
                 printBoundingBoxAndDelta(current_bbox);
                 printBoundingBoxAndDelta(aligned_bbox);
                 std::cout << "\n";
+
+                 vessel_stress.exec(dt);
+                 stent_stress.exec(dt);
+                 write_states.writeToFile();
             }
 
             apply_radial_force.exec(dt);
@@ -286,25 +309,21 @@ int main(int ac, char *av[])
 
             /** Stress relaxation and damping. */
             stress_relaxation_first_half_stent.exec(dt);
-
-            constrain_rotation.exec(dt);
-
+            constrain_rotation_stent.exec(dt);
             constrain_mass_center_stent.exec(dt);
-
             stent_damping.exec(dt);
-
-            constrain_rotation.exec(dt);
-
+            constrain_rotation_stent.exec(dt);
             constrain_mass_center_stent.exec(dt);
-
             stress_relaxation_second_half_stent.exec(dt);
 
             stress_relaxation_first_half_vessel.exec(dt);
-            constrain_holder.exec(dt);
+            //constrain_holder.exec(dt);
+            constrain_rotation_vessel.exec(dt);
             constrain_mass_center_vessel.exec(dt);
-            vessel_damping.exec(dt);
+            //vessel_damping.exec(dt);
+            //constrain_rotation_vessel.exec(dt);
             constrain_mass_center_vessel.exec(dt);
-            constrain_holder.exec(dt);
+            //constrain_holder.exec(dt);
             stress_relaxation_second_half_vessel.exec(dt);
 
             ite++;
@@ -328,14 +347,13 @@ int main(int ac, char *av[])
             Vec3d delta = aligned_bbox1.second_ - aligned_bbox1.first_;
 
             // 检查 delta 是否已经达到阈值
-            if (delta[1] >= 0.0045 && delta[2] >= 0.0045)
+            if (delta[1] >= 0.0036 || delta[2] >= 0.0036)
             {
                 std::cout << "Delta reached 4 mm in Z or Y direction, stopping force application.\n";
                 printBoundingBoxAndDelta(aligned_bbox1);
                 // 设置标志位以提前结束模拟
                 stop_simulation = true;
-                // write_states.writeToFile();
-                // write_particle_state.writeToFile(ite);
+                //write_states.writeToFile();
 
                 break;
             }
