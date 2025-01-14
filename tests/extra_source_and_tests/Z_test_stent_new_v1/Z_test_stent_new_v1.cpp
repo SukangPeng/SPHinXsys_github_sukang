@@ -6,7 +6,7 @@
  * @author 	Sukang Peng
  */
 
-#include "Z_test_stent_v1.h"
+#include "Z_test_stent_new_v1.h"
 #include "sphinxsys.h"
 using namespace SPH; 
 //----------------------------------------------------------------------
@@ -29,7 +29,7 @@ int main(int ac, char *av[])
     //	Creating body, materials and particles.
     //----------------------------------------------------------------------
     SolidBody stent_body(sph_system, makeShared<Stent>("Stent"));
-    stent_body.defineAdaptationRatios(1.15, 4.0);
+    stent_body.defineAdaptationRatios(1.15, 7.0);
     stent_body.defineBodyLevelSetShape()->correctLevelSetSign()->writeLevelSet(sph_system);
     stent_body.defineMaterial<NeoHookeanSolid>(rho0_s_stent, youngs_modulus_stent, poisson_stent);
     (!sph_system.RunParticleRelaxation() && sph_system.ReloadParticles())
@@ -52,7 +52,7 @@ int main(int ac, char *av[])
         //----------------------------------------------------------------------
         using namespace relax_dynamics;
         SimpleDynamics<RandomizeParticlePosition> random_stent_particles(stent_body);
-        RelaxationStepInner relaxation_step_stent_inner(stent_relax_inner);
+        RelaxationStepLevelSetCorrectionInner relaxation_step_stent_inner(stent_relax_inner);
         /** Write the body state to Vtp file. */
         BodyStatesRecordingToVtp write_stent_state_to_vtp(stent_body);
         /** Write the particle reload files. */
@@ -93,10 +93,10 @@ int main(int ac, char *av[])
     //	Define the numerical methods used in the simulation.
     //	Note that there may be data dependence on the sequence of constructions.
     //----------------------------------------------------------------------
-    //RadialForce radial_force(23000.0, xAxis);
-    StartupRadialForce radial_force(23000.0, xAxis, 0.01);
+    // RadialForce radial_force(23000.0, xAxis);
+    StartupRadialForce radial_force(500000000.0, xAxis, 0.01);
     // 使用 SimpleDynamics 创建径向力应用对象
-    //SimpleDynamics<RadialForceApplication<RadialForce>> apply_radial_force(stent_body, radial_force);
+    // SimpleDynamics<RadialForceApplication<RadialForce>> apply_radial_force(stent_body, radial_force);
     SimpleDynamics<RadialForceApplication<StartupRadialForce>> apply_radial_force(stent_body, radial_force);
 
     InteractionWithUpdate<LinearGradientCorrectionMatrixInner> corrected_configuration_stent(stent_inner);
@@ -104,9 +104,26 @@ int main(int ac, char *av[])
     Dynamics1Level<solid_dynamics::DecomposedIntegration1stHalf> stress_relaxation_first_half_stent(stent_inner);
     Dynamics1Level<solid_dynamics::Integration2ndHalf> stress_relaxation_second_half_stent(stent_inner);
 
-    SimpleDynamics<solid_dynamics::ConstrainSolidBodyMassCenter> constrain_mass_center_stent(stent_body);
     /** Damping with the solid body*/
-    DampingWithRandomChoice<InteractionSplit<DampingPairwiseInner<Vec3d, FixedDampingRate>>> stent_damping(1.0, stent_inner, "Velocity", physical_viscosity_stent);
+    DampingWithRandomChoice<InteractionSplit<DampingPairwiseInner<Vec3d, FixedDampingRate>>> stent_damping(0.2, stent_inner, "Velocity", physical_viscosity_stent);
+
+    /**Constrain  */
+    SimpleDynamics<solid_dynamics::ConstrainSolidBodyMassCenter> constrain_mass_center_stent(stent_body);
+
+    ReduceDynamics<QuantitySummation<Real, SolidBody>> compute_total_mass_stent(stent_body, "Mass");
+    ReduceDynamics<QuantityMassPosition<SolidBody>> compute_mass_position_stent(stent_body);
+    Vecd mass_center_stent = compute_mass_position_stent.exec() / compute_total_mass_stent.exec();
+    Matd moment_of_inertia_stent = Matd::Zero();
+    // 计算惯性矩
+    for (int i = 0; i != Dimensions; ++i)
+    {
+        for (int j = 0; j != Dimensions; ++j)
+        {
+            ReduceDynamics<QuantityMomentOfInertia<SolidBody>> compute_moment_of_inertia_stent(stent_body, mass_center_stent, i, j);
+            moment_of_inertia_stent(i, j) = compute_moment_of_inertia_stent.exec();
+        }
+    }
+    SimpleDynamics<Constrain3DSolidBodyRotation> constrain_rotation_stent(stent_body, mass_center_stent, moment_of_inertia_stent);
     //----------------------------------------------------------------------
     //	Define the methods for I/O operations, observations
     //	and regression tests of the simulation.
@@ -122,7 +139,7 @@ int main(int ac, char *av[])
     sph_system.initializeSystemCellLinkedLists();
     sph_system.initializeSystemConfigurations();
     corrected_configuration_stent.exec();
-    //apply_radial_force.exec();
+    // apply_radial_force.exec();
     //----------------------------------------------------------------------
     //	Setup for time-stepping control
     //----------------------------------------------------------------------
@@ -158,7 +175,7 @@ int main(int ac, char *av[])
                 write_stent_kinetic_energy.writeToFile(ite);
 
                 // 新增：输出当前径向力
-                Vecd current_radial_force = radial_force.GetCurrentForce();
+                Vecd current_radial_force = radial_force.GetCurrentForce(physical_time);
                 std::cout << "Current Radial Force: ("
                           << current_radial_force[0] << ", "
                           << current_radial_force[1] << ", "
@@ -169,16 +186,19 @@ int main(int ac, char *av[])
                 printBoundingBoxAndDelta(current_bbox);
                 printBoundingBoxAndDelta(aligned_bbox);
                 std::cout << "\n";
-
+                stent_stress.exec(dt);
+                write_states.writeToFile();
             }
 
             apply_radial_force.exec(dt);
 
             /** Stress relaxation and damping. */
             stress_relaxation_first_half_stent.exec(dt);
-            constrain_mass_center_stent.exec(dt);
-            stent_damping.exec(dt);
-            constrain_mass_center_stent.exec(dt);
+            //constrain_mass_center_stent.exec(dt);
+            //constrain_rotation_stent.exec(dt);
+            //stent_damping.exec(dt);
+            //constrain_rotation_stent.exec(dt);
+            //constrain_mass_center_stent.exec(dt);
             stress_relaxation_second_half_stent.exec(dt);
 
             ite++;
@@ -187,8 +207,6 @@ int main(int ac, char *av[])
             physical_time += dt;
 
             stent_body.updateCellLinkedList();
-            stent_stress.exec(dt);
-            write_states.writeToFile();
 
             // 计算当前的边界框
             BoundingBox current_bbox = getRealTimeBoundingBox(stent_body.getBaseParticles());
@@ -196,7 +214,7 @@ int main(int ac, char *av[])
             Vec3d delta = aligned_bbox.second_ - aligned_bbox.first_;
 
             // 检查 delta 是否已经达到阈值
-            if (delta[1] >= 0.0036 && delta[2] >= 0.0036)
+            if (delta[1] >= 0.0034 && delta[2] >= 0.0034)
             {
                 std::cout << "Delta reached 4 mm in Z or Y direction, stopping force application.\n";
                 printBoundingBoxAndDelta(aligned_bbox);
@@ -208,6 +226,7 @@ int main(int ac, char *av[])
             }
         }
         TickCount t2 = TickCount::now();
+        stent_stress.exec(dt);
         write_states.writeToFile();
         TickCount t3 = TickCount::now();
         interval += t3 - t2;
@@ -227,7 +246,6 @@ int main(int ac, char *av[])
     {
         write_stent_kinetic_energy.testResult();
     }
-
 
     return 0;
 }
